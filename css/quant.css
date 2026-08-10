@@ -476,3 +476,98 @@ footer {
     grid-template-columns: 1fr 1fr;
   }
 }
+
+
+/* ===== Stock Lookup (Screener-style) ===== */
+.lookup-label {
+  font-size: 11px !important;
+  letter-spacing: 0.08em !important;
+  color: #6366f1 !important;
+  font-weight: 700 !important;
+  text-transform: uppercase !important;
+}
+.lookup-row {
+  display: flex;
+  gap: 10px;
+  align-items: stretch;
+}
+.lookup-wrap {
+  position: relative;
+  flex: 1;
+}
+.lookup-wrap input#ticker-input {
+  width: 100%;
+  background: #fff !important;
+  color: #111827 !important;
+  border: 2px solid #111827 !important;
+  border-radius: 999px !important;
+  padding: 10px 18px !important;
+  font-size: 15px !important;
+  font-weight: 500;
+}
+.lookup-wrap input#ticker-input:focus {
+  border-color: #4f46e5 !important;
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.2);
+}
+.lookup-wrap input#ticker-input::placeholder {
+  color: #9ca3af !important;
+}
+.analyse-btn {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  padding: 0 20px;
+  border-radius: 999px;
+  font-weight: 600;
+  cursor: pointer;
+  font-size: 13px;
+  white-space: nowrap;
+}
+.analyse-btn:hover { filter: brightness(1.1); }
+
+.search-suggest {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 100;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  box-shadow: 0 12px 40px rgba(0,0,0,0.18);
+  max-height: 320px;
+  overflow-y: auto;
+}
+.search-suggest[hidden] { display: none !important; }
+
+.sug-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 16px;
+  cursor: pointer;
+  border-bottom: 1px solid #f3f4f6;
+  font-size: 14px;
+}
+.sug-item:last-child { border-bottom: none; }
+.sug-item:hover, .sug-item.active {
+  background: #f5f3ff;
+}
+.sug-name {
+  color: #1f2937;
+  font-weight: 500;
+  text-align: left;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sug-sym {
+  color: #4f46e5;
+  font-weight: 700;
+  font-size: 12px;
+  letter-spacing: 0.03em;
+  flex-shrink: 0;
+}
