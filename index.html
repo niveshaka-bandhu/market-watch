@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#0b0f14" />
+  <meta name="description" content="Institutional quant analysis dashboard for Indian stocks (NSE/BSE)" />
+  <title>Indian Quant Verdict Dashboard</title>
+  <link rel="manifest" href="manifest.json" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="css/quant.css" />
+  <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+</head>
+<body>
+  <div class="container">
+    <!-- Top Control Bar -->
+    <div class="control-bar">
+      <div class="control-group">
+        <label>Workspace Selection</label>
+        <div class="radio-group">
+          <label>
+            <input type="radio" name="workspace" value="market" checked />
+            <span>📈 Market View & Full Verdict</span>
+          </label>
+          <label>
+            <input type="radio" name="workspace" value="quant" />
+            <span>🧬 Quantitative Deep-Dive</span>
+          </label>
+        </div>
+      </div>
+
+      <div class="control-group">
+        <label>&nbsp;</label>
+        <label class="checkbox-wrap" style="margin-top:0">
+          <input type="checkbox" id="show-bb" checked />
+          Show Bollinger Bands
+        </label>
+      </div>
+
+      <div class="control-group" style="margin-left:auto">
+        <label>Indian Ticker</label>
+        <div style="display:flex;gap:8px">
+          <input type="text" id="ticker-input" value="" placeholder="Type symbol or company name..." />
+          <button id="analyse-btn" style="background:var(--accent);color:white;border:none;padding:8px 16px;border-radius:8px;font-weight:600;cursor:pointer;font-size:13px">
+            Analyse
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Loading -->
+    <div id="loading" class="loading hidden">
+      <div class="spinner"></div>
+      <div>Executing structural algorithmic calculations...</div>
+    </div>
+
+    <!-- Error -->
+    <div id="error-box" class="error-box hidden"></div>
+
+    <!-- Main Content -->
+    <div id="main-content" class="hidden">
+      <h1 id="asset-title" style="font-size:20px;margin-bottom:16px">Strategic Asset Intelligence Center</h1>
+
+      <!-- ========== MARKET VIEW ========== -->
+      <div id="view-market">
+        <div id="verdict-box" class="verdict-box"></div>
+
+        <div class="two-col">
+          <div class="card">
+            <h3>✅ Positive Structural Drivers (Bulls)</h3>
+            <ul id="bull-list" class="bull-list"></ul>
+          </div>
+          <div class="card">
+            <h3>⚠️ Structural Risk Warnings (Bears)</h3>
+            <ul id="bear-list" class="bear-list"></ul>
+          </div>
+        </div>
+
+        <div class="metrics-row">
+          <div class="metric-card">
+            <div class="label">Current Value</div>
+            <div class="value" id="m-price">—</div>
+            <div class="delta" id="m-delta"></div>
+          </div>
+          <div class="metric-card">
+            <div class="label">Relative Strength Index</div>
+            <div class="value" id="m-rsi">—</div>
+          </div>
+          <div class="metric-card">
+            <div class="label">MACD Histogram</div>
+            <div class="value" id="m-macd">—</div>
+          </div>
+          <div class="metric-card">
+            <div class="label">Bull Convergence Weight</div>
+            <div class="value" id="m-bull">—</div>
+          </div>
+        </div>
+
+        <div class="card" style="margin-bottom:20px">
+          <div class="section-title">📊 Price Action Engine</div>
+          <div id="price-chart"></div>
+        </div>
+
+        <div class="two-col">
+          <div class="card">
+            <h3>📐 Intraday Pivot Target Framework</h3>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;font-size:13px">
+              <div>
+                <div style="color:var(--text-muted);margin-bottom:4px">Resistance 2</div>
+                <div id="pivot-r2" style="font-weight:600">—</div>
+                <div style="color:var(--text-muted);margin:10px 0 4px">Resistance 1</div>
+                <div id="pivot-r1" style="font-weight:600">—</div>
+              </div>
+              <div>
+                <div style="color:var(--text-muted);margin-bottom:4px">Support 1</div>
+                <div id="pivot-s1" style="font-weight:600">—</div>
+                <div style="color:var(--text-muted);margin:10px 0 4px">Support 2</div>
+                <div id="pivot-s2" style="font-weight:600">—</div>
+              </div>
+            </div>
+            <div style="margin-top:16px;display:flex;gap:24px">
+              <div>
+                <div style="font-size:11px;color:var(--text-muted)">Central Pivot</div>
+                <div id="pivot-central" style="font-size:18px;font-weight:700;color:var(--accent)">—</div>
+              </div>
+              <div>
+                <div style="font-size:11px;color:var(--text-muted)">14-Day ATR</div>
+                <div id="pivot-atr" style="font-size:18px;font-weight:700">—</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="card">
+            <h3>💎 Intrinsic Valuation Models</h3>
+            <p id="fundamentals-note" style="font-size:12px;margin-bottom:12px;color:var(--text-muted)"></p>
+            <div style="margin-bottom:16px">
+              <div style="font-size:13px;font-weight:600;margin-bottom:8px">🏛️ Graham Valuation</div>
+              <div class="form-row">
+                <div class="form-group">
+                  <label>EPS (₹)</label>
+                  <input type="number" id="graham-eps" step="0.1" />
+                </div>
+                <div class="form-group">
+                  <label>BVPS (₹)</label>
+                  <input type="number" id="graham-bvps" step="0.1" />
+                </div>
+              </div>
+              <div id="graham-result" class="result-box">—</div>
+            </div>
+            <div>
+              <div style="font-size:13px;font-weight:600;margin-bottom:8px">🌀 Multi-Stage DCF (₹ Crores)</div>
+              <div class="form-row">
+                <div class="form-group">
+                  <label>FCF (₹ Cr)</label>
+                  <input type="number" id="dcf-fcf" step="100" />
+                </div>
+                <div class="form-group">
+                  <label>Shares (Cr)</label>
+                  <input type="number" id="dcf-shares" step="1" />
+                </div>
+              </div>
+              <div class="form-row">
+                <div class="form-group">
+                  <label>Growth %</label>
+                  <input type="number" id="dcf-growth" step="0.5" />
+                </div>
+                <div class="form-group">
+                  <label>Discount %</label>
+                  <input type="number" id="dcf-discount" step="0.5" />
+                </div>
+              </div>
+              <div id="dcf-result" class="result-box">—</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ========== QUANT DEEP-DIVE ========== -->
+      <div id="view-quant" class="hidden">
+        <div class="tabs">
+          <button class="tab-btn active" data-tab="quality">🧬 Quality Matrix</button>
+          <button class="tab-btn" data-tab="monte">🎲 Monte Carlo</button>
+          <button class="tab-btn" data-tab="backtest">🕒 Strategy Backtester</button>
+          <button class="tab-btn" data-tab="notes">📌 Notes</button>
+        </div>
+
+        <div id="tab-quality" class="tab-content active">
+          <div class="card">
+            <h3>Accounting & Solvency Factor Grid</h3>
+            <p style="font-size:12px;color:var(--text-muted);margin-bottom:12px">
+              Fundamentals pulled live from Yahoo Finance quoteSummary.
+            </p>
+            <div id="shareholding-row" class="metrics-row" style="margin-bottom:16px"></div>
+            <table>
+              <thead>
+                <tr>
+                  <th>Quant Performance Factor</th>
+                  <th>Current Reading</th>
+                  <th>Target Threshold</th>
+                </tr>
+              </thead>
+              <tbody id="quality-body"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div id="tab-monte" class="tab-content">
+          <div class="card">
+            <h3>🎲 30-Day Randomized Variance Walk Simulations</h3>
+            <div id="mc-chart"></div>
+            <ul id="mc-stats" style="margin-top:14px;font-size:13px;line-height:1.7;list-style:none"></ul>
+          </div>
+        </div>
+
+        <div id="tab-backtest" class="tab-content">
+          <div class="card">
+            <h3>🕒 Historical Strategy Simulation</h3>
+            <div class="form-row" style="margin-bottom:16px">
+              <div class="form-group">
+                <label>Strategy</label>
+                <select id="bt-strategy">
+                  <option value="sma">SMA Crossover (50 vs 200)</option>
+                  <option value="macd">MACD Line Crossover</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label>Starting Capital (₹)</label>
+                <input type="number" id="bt-capital" value="100000" />
+              </div>
+              <div class="form-group" style="justify-content:flex-end">
+                <label>&nbsp;</label>
+                <button id="run-backtest" style="background:var(--accent);color:white;border:none;padding:8px 18px;border-radius:8px;font-weight:600;cursor:pointer">
+                  Run Backtest
+                </button>
+              </div>
+            </div>
+            <div id="bt-result" class="result-box" style="margin-bottom:12px">Click “Run Backtest”</div>
+            <div id="bt-chart"></div>
+          </div>
+        </div>
+
+        <div id="tab-notes" class="tab-content">
+          <div class="card">
+            <h3>About this Dashboard</h3>
+            <p style="font-size:13px;line-height:1.6;color:var(--text-muted)">
+              Pure frontend rebuild of the Streamlit Indian Quant Verdict dashboard.
+              <br><br>
+              <strong>All data from Yahoo Finance:</strong> daily OHLCV (5y chart), PE, PB, ROE, margins, debt, beta, market cap, EPS, book value, FCF, shareholding, sector/industry.
+              <br><br>
+              Technicals, verdict engine, pivots, Monte Carlo, backtester, Graham & DCF are computed in the browser.
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <footer>
+      Indian Quant Verdict · Built for NSE/BSE · PWA-ready · Host on GitHub Pages
+    </footer>
+  </div>
+
+  <script src="js/data.js"></script>
+  <script src="js/indicators.js"></script>
+  <script src="js/verdict.js"></script>
+  <script src="js/charts.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
