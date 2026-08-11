@@ -69,16 +69,35 @@ const DataService = (() => {
 
   async function fetchYahooChart(ticker) {
     const urls = chartUrls(ticker);
-    let lastErr;
-    for (const url of urls) {
-      try {
-        const json = await fetchJson(url, 7000);
-        return parseChart(json);
-      } catch (e) {
-        lastErr = e;
+    // Race every direct/proxy URL in parallel instead of trying them one at a
+    // time. Sequentially, N failing sources each waiting out a 7s timeout
+    // means up to N*7s before giving up. In parallel, worst case is ~7s
+    // regardless of how many fallbacks we have, and we return as soon as the
+    // first one succeeds.
+    const attempts = urls.map((url) =>
+      fetchJson(url, 8000).then((json) => parseChart(json))
+    );
+    return firstSuccess(attempts);
+  }
+
+  function firstSuccess(promises) {
+    return new Promise((resolve, reject) => {
+      let remaining = promises.length;
+      const errors = [];
+      if (remaining === 0) {
+        reject(new Error('No data sources configured'));
+        return;
       }
-    }
-    throw lastErr || new Error('Yahoo chart failed');
+      promises.forEach((p) => {
+        p.then(resolve).catch((e) => {
+          errors.push(e);
+          remaining -= 1;
+          if (remaining === 0) {
+            reject(errors[errors.length - 1] || new Error('All sources failed'));
+          }
+        });
+      });
+    });
   }
 
   async function loadAll(ticker) {
