@@ -40,10 +40,14 @@ const App = (() => {
       const t = setTimeout(() => {
         cleanup();
         reject(new Error('Sheets timeout'));
-      }, 30000);
+      }, 60000);
       function cleanup() {
         clearTimeout(t);
-        try { delete window[cb]; } catch (e) {}
+        // Leave a harmless no-op in place instead of deleting the callback.
+        // If the Apps Script response arrives after we've already timed out
+        // (slow lock/poll on the server), the <script> tag will still try to
+        // invoke window[cb] — deleting it caused an uncaught ReferenceError.
+        window[cb] = function () {};
         if (s.parentNode) s.parentNode.removeChild(s);
       }
       window[cb] = (data) => {
