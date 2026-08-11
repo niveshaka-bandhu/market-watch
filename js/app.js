@@ -493,9 +493,9 @@ const App = (() => {
     epsEl.oninput = bvEl.oninput = updateGraham;
     updateGraham();
 
-    // Default growth rate to Screener's 5Y profit CAGR when available.
+    // Default growth rate to Screener's TTM sales growth when available.
     const defaultGrowth =
-      d.profitGrowth && d.profitGrowth.y5 != null ? d.profitGrowth.y5 : 12;
+      d.salesGrowth && d.salesGrowth.ttm != null ? d.salesGrowth.ttm : 12;
 
     if (gfEpsEl) {
       if (d.trailingEps != null) gfEpsEl.value = Number(d.trailingEps).toFixed(2);
