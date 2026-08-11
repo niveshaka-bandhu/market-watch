@@ -40,7 +40,7 @@ const App = (() => {
       const t = setTimeout(() => {
         cleanup();
         reject(new Error('Sheets timeout'));
-      }, 45000);
+      }, 30000);
       function cleanup() {
         clearTimeout(t);
         try { delete window[cb]; } catch (e) {}
@@ -59,13 +59,57 @@ const App = (() => {
     });
   }
 
-  async function loadEquityList() {
+  const EQUITY_CACHE_KEY = 'quantVerdict.equityIndex.v1';
+  const EQUITY_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24h
+
+  function readEquityCache() {
     try {
-      const res = await sheetsJsonp({ action: 'equity' });
-      if (res && res.ok && Array.isArray(res.data)) {
-        equityIndex = res.data;
-        console.log('Equity loaded:', equityIndex.length);
+      const raw = localStorage.getItem(EQUITY_CACHE_KEY);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      if (!parsed || !Array.isArray(parsed.data) || !parsed.data.length) return null;
+      return parsed;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function writeEquityCache(data) {
+    try {
+      localStorage.setItem(
+        EQUITY_CACHE_KEY,
+        JSON.stringify({ data, ts: Date.now() })
+      );
+    } catch (e) {
+      // storage full/unavailable — not fatal, just skip caching
+    }
+  }
+
+  async function fetchEquityListFresh() {
+    const res = await sheetsJsonp({ action: 'equity' });
+    if (res && res.ok && Array.isArray(res.data) && res.data.length) {
+      equityIndex = res.data;
+      writeEquityCache(res.data);
+      console.log('Equity loaded (network):', equityIndex.length);
+    }
+  }
+
+  async function loadEquityList() {
+    // Serve instantly from cache if we have one, even if slightly stale —
+    // search should never block page load on a ~2000-row network fetch.
+    const cached = readEquityCache();
+    if (cached) {
+      equityIndex = cached.data;
+      console.log('Equity loaded (cache):', equityIndex.length);
+      const age = Date.now() - (cached.ts || 0);
+      if (age > EQUITY_CACHE_TTL_MS) {
+        // Stale — refresh quietly in the background, don't block the caller.
+        fetchEquityListFresh().catch((e) => console.warn('Equity refresh failed', e));
       }
+      return;
+    }
+    try {
+      await fetchEquityListFresh();
     } catch (e) {
       console.warn('Equity list failed', e);
     }
