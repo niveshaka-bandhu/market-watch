@@ -338,6 +338,35 @@ const App = (() => {
       );
     }
 
+    function growthTable(g, pg, pc, roe) {
+      // Rows line up with the sheet's own period labels: Sales/Profit use
+      // "TTM" for the most recent period, Price CAGR uses "1 Year", ROE
+      // uses "Last Year" — same underlying row, different label per metric.
+      const periods = [
+        { label: '10 Years', sales: g.y10, profit: pg.y10, price: pc.y10, roe: roe.y10 },
+        { label: '5 Years', sales: g.y5, profit: pg.y5, price: pc.y5, roe: roe.y5 },
+        { label: '3 Years', sales: g.y3, profit: pg.y3, price: pc.y3, roe: roe.y3 },
+        { label: 'TTM / 1Y / Last Yr', sales: g.ttm, profit: pg.ttm, price: pc.y1, roe: roe.last }
+      ];
+      const cell = (v) => (v != null ? v + '%' : '');
+      const rows = periods
+        .filter((p) => p.sales != null || p.profit != null || p.price != null || p.roe != null)
+        .map(
+          (p) =>
+            '<tr><td>' + p.label + '</td><td>' + cell(p.sales) + '</td><td>' +
+            cell(p.profit) + '</td><td>' + cell(p.price) + '</td><td>' + cell(p.roe) + '</td></tr>'
+        )
+        .join('');
+      if (!rows) return '';
+      return (
+        '<div class="card" style="margin-top:14px;overflow-x:auto">' +
+        '<h3>Compounded Growth</h3>' +
+        '<table class="data-table"><thead><tr><th>Period</th><th>Sales Growth</th>' +
+        '<th>Profit Growth</th><th>Stock Price CAGR</th><th>Return on Equity</th></tr></thead>' +
+        '<tbody>' + rows + '</tbody></table></div>'
+      );
+    }
+
     host.innerHTML =
       '<div style="margin-top:8px">' +
       '<div class="card">' +
@@ -377,17 +406,8 @@ const App = (() => {
         cardIfPresent('OPM', d.opmTtm, '%'),
         cardIfPresent('ROCE', d.roce, '%')
       ]) +
-      section('Growth & returns', [
-        cardIfPresent('Sales 10Y', g.y10, '%'),
-        cardIfPresent('Sales 5Y', g.y5, '%'),
-        cardIfPresent('Profit 10Y', pg.y10, '%'),
-        cardIfPresent('Profit TTM', pg.ttm, '%'),
-        cardIfPresent('ROE 10Y', roe.y10, '%'),
-        cardIfPresent('ROE Last Yr', roe.last, '%'),
-        cardIfPresent('Price CAGR 5Y', pc.y5, '%'),
-        cardIfPresent('Price 1Y', pc.y1, '%')
-      ]) +
       '</div>' +
+      growthTable(g, pg, pc, roe) +
       htmlTable('Quarterly results', t.quarterly) +
       htmlTable('Profit & Loss', t.profitLoss) +
       htmlTable('Balance Sheet', t.balanceSheet) +
@@ -667,6 +687,13 @@ const App = (() => {
     const dayRadio = document.querySelector('input[name="chart-tf"][value="D"]');
     if (dayRadio) dayRadio.checked = true;
     state.sheet = null;
+    // Clear valuation calculator inputs so a stale value from the previous
+    // ticker (or a failed first-load fallback) can never block this
+    // ticker's auto-fill — see renderValuationWidgets' "!el.value" checks.
+    ['#graham-eps', '#graham-bvps', '#gf-eps', '#gf-growth', '#pl-eps', '#pl-growth'].forEach((sel) => {
+      const el = $(sel);
+      if (el) el.value = '';
+    });
 
     hide($('#main-content'));
     hide($('#error-box'));
