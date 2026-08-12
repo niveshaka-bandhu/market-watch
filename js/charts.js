@@ -102,7 +102,23 @@ const Charts = (() => {
     const layout = {
       ...layoutBase,
       height: 420,
-      yaxis: { ...layoutBase.yaxis, title: 'Price (₹)' }
+      xaxis: {
+        ...layoutBase.xaxis,
+        type: 'date',
+        autorange: true,
+        // Skip non-trading days so the candles aren't stretched across
+        // empty weekend gaps — this is what made short histories (e.g. a
+        // newly-listed stock with only a few weeks of data) look like they
+        // spanned a much longer, near-empty range.
+        rangebreaks: [{ pattern: 'day of week', bounds: [6, 1] }]
+      },
+      yaxis: {
+        ...layoutBase.yaxis,
+        title: 'Price (₹)',
+        tickformat: ',.0f',
+        hoverformat: ',.2f',
+        separatethousands: true
+      }
     };
 
     Plotly.newPlot('price-chart', traces, layout, { responsive: true, displayModeBar: false });
