@@ -46,6 +46,10 @@
           <input type="checkbox" id="show-bb" checked />
           Show Bollinger Bands
         </label>
+        <label class="checkbox-wrap" style="margin-top:6px">
+          <input type="checkbox" id="show-fib" />
+          Show Fibonacci Levels
+        </label>
       </div>
 
       <div class="control-group stock-lookup" style="margin-left:auto;flex:1;min-width:280px;max-width:520px">
@@ -214,6 +218,13 @@
         </div>
 
         <div id="tab-quality" class="tab-content active">
+          <div class="card" style="margin-bottom:16px">
+            <h3>📈 Risk & Return Analytics</h3>
+            <p style="font-size:12px;color:var(--text-muted);margin-bottom:12px">
+              Computed from daily price returns over the loaded history.
+            </p>
+            <div id="risk-metrics-row" class="metrics-row"></div>
+          </div>
           <div class="card">
             <h3>Accounting & Solvency Factor Grid</h3>
             <p style="font-size:12px;color:var(--text-muted);margin-bottom:12px">

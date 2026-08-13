@@ -18,7 +18,7 @@ const Charts = (() => {
     paper_bgcolor: 'rgba(0,0,0,0)',
     plot_bgcolor: 'rgba(0,0,0,0)',
     font: { color: fontColor, size: 11, family: 'Inter, system-ui, sans-serif' },
-    margin: { l: 50, r: 20, t: 20, b: 40 },
+    margin: { l: 50, r: 68, t: 20, b: 40 },
     xaxis: {
       gridcolor: gridColor,
       linecolor: lineColor,
@@ -37,7 +37,7 @@ const Charts = (() => {
     hovermode: 'x unified'
   };
 
-  function priceChart(df, showBollinger = true) {
+  function priceChart(df, showBollinger = true, fibLevels = null) {
     if (typeof Plotly === 'undefined') return;
     if (!df || df.length < 5) return;
     // Last ~1 year for clarity
@@ -99,9 +99,38 @@ const Charts = (() => {
       );
     }
 
+    const shapes = [];
+    const annotations = [];
+    if (fibLevels && fibLevels.length) {
+      const fibColor = isLight ? 'rgba(234,88,12,0.55)' : 'rgba(249,115,22,0.55)';
+      fibLevels.forEach((lvl) => {
+        shapes.push({
+          type: 'line',
+          xref: 'paper',
+          x0: 0,
+          x1: 1,
+          y0: lvl.price,
+          y1: lvl.price,
+          line: { color: fibColor, width: 1, dash: 'dot' }
+        });
+        annotations.push({
+          xref: 'paper',
+          x: 1,
+          xanchor: 'left',
+          y: lvl.price,
+          yanchor: 'middle',
+          text: lvl.label,
+          showarrow: false,
+          font: { size: 9, color: fibColor }
+        });
+      });
+    }
+
     const layout = {
       ...layoutBase,
       height: 420,
+      shapes,
+      annotations,
       xaxis: {
         ...layoutBase.xaxis,
         type: 'date',

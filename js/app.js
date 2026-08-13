@@ -1,5 +1,5 @@
 // ========== PASTE YOUR APPS SCRIPT WEB APP URL HERE ==========
-const SHEETS_API = 'https://script.google.com/macros/s/AKfycbxgR0EC7xaqe9H0Wx9gG0pQcpl2Elb-Skoxz_Pz7wPA6N3zTckWQFyb_u6TFfFo7oux/exec';
+const SHEETS_API = 'https://script.google.com/macros/s/YOUR_DEPLOYMENT_ID/exec';
 // ============================================================
 
 const App = (() => {
@@ -10,6 +10,7 @@ const App = (() => {
     info: {},
     verdict: null,
     showBollinger: true,
+    fibEnabled: false,
     chartTimeframe: 'D',
     view: 'market',
     sheet: null
@@ -420,7 +421,31 @@ const App = (() => {
   function drawPriceChart() {
     if (!state.df || typeof Charts === 'undefined') return;
     const data = Indicators.aggregateOHLC(state.df, state.chartTimeframe);
-    Charts.priceChart(data, state.showBollinger);
+    const fib = state.fibEnabled ? Indicators.fibonacciLevels(data, 130) : null;
+    Charts.priceChart(data, state.showBollinger, fib);
+  }
+
+  function renderRiskMetrics(df) {
+    const host = $('#risk-metrics-row');
+    if (!host) return;
+    const m = Indicators.riskMetrics(df);
+    if (!m) {
+      host.innerHTML = '<p style="font-size:12px;color:var(--text-muted)">Not enough price history for risk analytics.</p>';
+      return;
+    }
+    function card(label, val, cls) {
+      return (
+        '<div class="metric-card"><div class="label">' + label + '</div>' +
+        '<div class="value" style="font-size:17px' + (cls ? ';' + cls : '') + '">' + val + '</div></div>'
+      );
+    }
+    host.innerHTML =
+      card('Annualized Return', m.annualReturn.toFixed(1) + '%', 'color:' + (m.annualReturn >= 0 ? 'var(--green)' : 'var(--red)')) +
+      card('Annualized Volatility', m.annualVol.toFixed(1) + '%') +
+      card('Sharpe Ratio (Rf 7%)', m.sharpe != null ? m.sharpe.toFixed(2) : '—') +
+      card('Max Drawdown', m.maxDrawdown.toFixed(1) + '%', 'color:var(--red)') +
+      card('Best Day', '+' + m.bestDay.toFixed(1) + '%', 'color:var(--green)') +
+      card('Worst Day', m.worstDay.toFixed(1) + '%', 'color:var(--red)');
   }
 
   // ---------- Market view ----------
@@ -472,6 +497,7 @@ const App = (() => {
     $('#m-bull').textContent = (v.bullRatio * 100).toFixed(1) + '%';
 
     if (state.df) drawPriceChart();
+    renderRiskMetrics(state.df);
     const piv = Indicators.pivots(last);
     $('#pivot-r2').textContent = formatINR(piv.r2);
     $('#pivot-r1').textContent = formatINR(piv.r1);
@@ -783,6 +809,12 @@ const App = (() => {
     if (bb)
       bb.addEventListener('change', () => {
         state.showBollinger = bb.checked;
+        if (state.view === 'market') drawPriceChart();
+      });
+    const fib = $('#show-fib');
+    if (fib)
+      fib.addEventListener('change', () => {
+        state.fibEnabled = fib.checked;
         if (state.view === 'market') drawPriceChart();
       });
     $$('input[name="chart-tf"]').forEach((radio) => {

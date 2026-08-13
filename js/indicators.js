@@ -215,6 +215,67 @@ const Indicators = (() => {
     }));
   }
 
+  // ---------- Advanced analysis ----------
+
+  const RISK_FREE_RATE = 0.07; // approx. Indian 10Y G-Sec, used for Sharpe
+
+  function riskMetrics(df) {
+    if (!df || df.length < 30) return null;
+    const returns = df.map((r) => r.dailyReturn).filter((v) => v != null && !isNaN(v));
+    if (returns.length < 20) return null;
+
+    const n = returns.length;
+    const mean = returns.reduce((a, b) => a + b, 0) / n;
+    const variance = returns.reduce((a, b) => a + (b - mean) * (b - mean), 0) / (n - 1);
+    const dailyVol = Math.sqrt(variance);
+    const annualVol = dailyVol * Math.sqrt(252);
+    const annualReturn = Math.pow(1 + mean, 252) - 1;
+    const sharpe = annualVol > 0 ? (annualReturn - RISK_FREE_RATE) / annualVol : null;
+
+    // Max drawdown off the closing price series
+    let peak = -Infinity;
+    let maxDD = 0;
+    for (const row of df) {
+      if (row.close == null) continue;
+      if (row.close > peak) peak = row.close;
+      if (peak > 0) {
+        const dd = (row.close - peak) / peak;
+        if (dd < maxDD) maxDD = dd;
+      }
+    }
+
+    const bestDay = Math.max(...returns);
+    const worstDay = Math.min(...returns);
+
+    return {
+      annualReturn: annualReturn * 100,
+      annualVol: annualVol * 100,
+      sharpe,
+      maxDrawdown: maxDD * 100,
+      bestDay: bestDay * 100,
+      worstDay: worstDay * 100
+    };
+  }
+
+  function fibonacciLevels(df, lookback) {
+    if (!df || !df.length) return null;
+    const window = lookback ? df.slice(-lookback) : df;
+    let hi = -Infinity;
+    let lo = Infinity;
+    for (const row of window) {
+      if (row.high > hi) hi = row.high;
+      if (row.low < lo) lo = row.low;
+    }
+    if (!isFinite(hi) || !isFinite(lo) || hi === lo) return null;
+    const range = hi - lo;
+    const ratios = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1];
+    return ratios.map((r) => ({
+      ratio: r,
+      price: hi - range * r,
+      label: (r * 100).toFixed(1) + '%'
+    }));
+  }
+
   return {
     calculateAll,
     pivots,
@@ -224,6 +285,8 @@ const Indicators = (() => {
     macd,
     bollinger,
     atr,
-    aggregateOHLC
+    aggregateOHLC,
+    riskMetrics,
+    fibonacciLevels
   };
 })();
