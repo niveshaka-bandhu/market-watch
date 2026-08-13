@@ -1,5 +1,5 @@
 // ========== PASTE YOUR APPS SCRIPT WEB APP URL HERE ==========
-const SHEETS_API = 'https://script.google.com/macros/s/AKfycbxgR0EC7xaqe9H0Wx9gG0pQcpl2Elb-Skoxz_Pz7wPA6N3zTckWQFyb_u6TFfFo7oux/exec';
+const SHEETS_API = 'https://script.google.com/macros/s/YOUR_DEPLOYMENT_ID/exec';
 // ============================================================
 
 const App = (() => {
@@ -590,34 +590,166 @@ const App = (() => {
     return out;
   }
 
+  function grahamFormulaFairValue(d) {
+    const eps = d.trailingEps;
+    const rawGrowth = d.salesGrowth && d.salesGrowth.ttm != null ? d.salesGrowth.ttm : null;
+    if (eps == null || eps <= 0 || rawGrowth == null) return null;
+    const floored = rawGrowth < 0;
+    const g = floored ? 5 : rawGrowth;
+    return { value: eps * (8.5 + 2 * g), floored, rawGrowth };
+  }
+
+  function lynchFairValue(d) {
+    const eps = d.trailingEps;
+    const rawGrowth = d.salesGrowth && d.salesGrowth.ttm != null ? d.salesGrowth.ttm : null;
+    if (eps == null || eps <= 0 || rawGrowth == null) return null;
+    const floored = rawGrowth < 0;
+    const g = floored ? 5 : rawGrowth;
+    return { value: eps * g, floored, rawGrowth };
+  }
+
+  function fibProximity(df) {
+    if (!df || df.length < 10) return {};
+    const levels = Indicators.fibonacciLevels(df, 130);
+    const last = df[df.length - 1];
+    if (!levels || last.close == null) return {};
+    const range = levels[0].price - levels[levels.length - 1].price;
+    if (!range) return {};
+    const tolerance = range * 0.03;
+    let support = false;
+    let resistance = false;
+    levels.forEach((lvl) => {
+      if (lvl.ratio === 0 || lvl.ratio === 1) return; // skip the raw swing high/low themselves
+      if (Math.abs(last.close - lvl.price) <= tolerance) {
+        if (last.close <= lvl.price) support = true;
+        else resistance = true;
+      }
+    });
+    return { fibSupport: support, fibResistance: resistance };
+  }
+
+  function returnProjection(d, sn, currentPrice) {
+    if (currentPrice == null || currentPrice <= 0) return null;
+    const out = { trend: {}, reversion: {} };
+    let any = false;
+
+    // Scenario 1: extrapolate Screener's own historical price CAGR forward.
+    // Pure trend continuation — says nothing about whether that trend will
+    // actually hold.
+    const pc = d.priceCagr || {};
+    if (pc.y1 != null) {
+      out.trend.oneYear = pc.y1;
+      any = true;
+    }
+    if (pc.y5 != null) {
+      out.trend.fiveYear = (Math.pow(1 + pc.y5 / 100, 5) - 1) * 100;
+      any = true;
+    }
+
+    // Scenario 2: what re-rating to the Graham Formula / Peter Lynch fair
+    // value (averaged, using the same 5% growth floor rule) would imply, if
+    // it happened over 1 year vs gradually over 5.
+    const gf = grahamFormulaFairValue(d);
+    const lv = lynchFairValue(d);
+    const fairValues = [gf && gf.value, lv && lv.value].filter((v) => v != null && v > 0);
+    if (fairValues.length) {
+      const avgFair = fairValues.reduce((a, b) => a + b, 0) / fairValues.length;
+      const gapPct = ((avgFair - currentPrice) / currentPrice) * 100;
+      out.reversion.fairValue = avgFair;
+      out.reversion.gapPct = gapPct;
+      // 1Y: assume the gap closes fully within a year (aggressive).
+      // 5Y: assume it closes gradually, compounding at the floored growth
+      // rate once fair value is reached.
+      out.reversion.oneYear = gapPct;
+      const growth = gf && gf.rawGrowth != null ? gf.rawGrowth : null;
+      const flooredGrowth = growth != null && growth < 0 ? 5 : growth;
+      const postReRateGrowth = flooredGrowth != null ? flooredGrowth : 8;
+      out.reversion.fiveYear =
+        ((avgFair * Math.pow(1 + postReRateGrowth / 100, 4) - currentPrice) / currentPrice) * 100;
+      any = true;
+    }
+
+    return any ? out : null;
+  }
+
   function drawPriceChart() {
+
     if (!state.df || typeof Charts === 'undefined') return;
     const data = Indicators.aggregateOHLC(state.df, state.chartTimeframe);
     const fib = state.fibEnabled ? Indicators.fibonacciLevels(data, 130) : null;
     Charts.priceChart(data, state.showBollinger, fib);
   }
 
-  function renderRiskMetrics(df) {
+  function renderRiskMetrics(df, sheet) {
     const host = $('#risk-metrics-row');
     if (!host) return;
     const m = Indicators.riskMetrics(df);
-    if (!m) {
-      host.innerHTML = '<p style="font-size:12px;color:var(--text-muted)">Not enough price history for risk analytics.</p>';
-      return;
-    }
+    const wk52 = Indicators.week52Range(df);
     function card(label, val, cls) {
       return (
         '<div class="metric-card"><div class="label">' + label + '</div>' +
         '<div class="value" style="font-size:17px' + (cls ? ';' + cls : '') + '">' + val + '</div></div>'
       );
     }
+    let html = '';
+    if (m) {
+      html +=
+        card('Annualized Return', m.annualReturn.toFixed(1) + '%', 'color:' + (m.annualReturn >= 0 ? 'var(--green)' : 'var(--red)')) +
+        card('Annualized Volatility', m.annualVol.toFixed(1) + '%') +
+        card('Sharpe Ratio (Rf 7%)', m.sharpe != null ? m.sharpe.toFixed(2) : '—') +
+        card('Max Drawdown', m.maxDrawdown.toFixed(1) + '%', 'color:var(--red)') +
+        card('Best Day', '+' + m.bestDay.toFixed(1) + '%', 'color:var(--green)') +
+        card('Worst Day', m.worstDay.toFixed(1) + '%', 'color:var(--red)');
+    }
+    if (wk52) {
+      html +=
+        card('52W High', formatINR(wk52.high)) +
+        card('52W Low', formatINR(wk52.low)) +
+        card('% From 52W High', wk52.pctFromHigh.toFixed(1) + '%', 'color:var(--red)') +
+        card('% From 52W Low', '+' + wk52.pctFromLow.toFixed(1) + '%', 'color:var(--green)');
+    }
+    host.innerHTML = html || '<p style="font-size:12px;color:var(--text-muted)">Not enough price history for risk analytics.</p>';
+
+    renderReturnProjection(df, sheet);
+  }
+
+  function renderReturnProjection(df, sheet) {
+    const host = $('#return-projection');
+    if (!host) return;
+    if (!df || !df.length || !sheet) {
+      host.innerHTML = '';
+      return;
+    }
+    const currentPrice = df[df.length - 1].close;
+    const proj = returnProjection(sheet, sheet.snapshot || {}, currentPrice);
+    if (!proj) {
+      host.innerHTML = '';
+      return;
+    }
+    function row(label, val) {
+      if (val == null || isNaN(val)) return '';
+      const cls = val >= 0 ? 'color:var(--green)' : 'color:var(--red)';
+      return '<tr><td>' + label + '</td><td style="' + cls + '">' + (val >= 0 ? '+' : '') + val.toFixed(1) + '%</td></tr>';
+    }
+    let rows = '';
+    rows += row('Trend continuation — 1 Year', proj.trend.oneYear);
+    rows += row('Trend continuation — 5 Year (cumulative)', proj.trend.fiveYear);
+    rows += row('Fair value re-rating — 1 Year', proj.reversion.oneYear);
+    rows += row('Fair value re-rating — 5 Year (cumulative)', proj.reversion.fiveYear);
+    if (!rows) {
+      host.innerHTML = '';
+      return;
+    }
     host.innerHTML =
-      card('Annualized Return', m.annualReturn.toFixed(1) + '%', 'color:' + (m.annualReturn >= 0 ? 'var(--green)' : 'var(--red)')) +
-      card('Annualized Volatility', m.annualVol.toFixed(1) + '%') +
-      card('Sharpe Ratio (Rf 7%)', m.sharpe != null ? m.sharpe.toFixed(2) : '—') +
-      card('Max Drawdown', m.maxDrawdown.toFixed(1) + '%', 'color:var(--red)') +
-      card('Best Day', '+' + m.bestDay.toFixed(1) + '%', 'color:var(--green)') +
-      card('Worst Day', m.worstDay.toFixed(1) + '%', 'color:var(--red)');
+      '<div class="card" style="margin-top:14px;overflow-x:auto">' +
+      '<h3>Illustrative 1Y / 5Y Return Projection</h3>' +
+      '<p style="font-size:11.5px;color:var(--text-muted);margin-bottom:10px">' +
+      'Two different models, not a forecast: "Trend continuation" extrapolates Screener\'s own historical price CAGR forward. ' +
+      '"Fair value re-rating" shows what happens if price closes the gap to the Graham Formula / Peter Lynch average fair value ' +
+      '(1Y = full re-rating, 5Y = gradual re-rating then compounding at the growth rate). Real returns depend on markets, ' +
+      'not formulas — treat both as reference points, not predictions.' +
+      '</p>' +
+      '<table class="data-table"><tbody>' + rows + '</tbody></table></div>';
   }
 
   // ---------- Market view ----------
@@ -669,7 +801,7 @@ const App = (() => {
     $('#m-bull').textContent = (v.bullRatio * 100).toFixed(1) + '%';
 
     if (state.df) drawPriceChart();
-    renderRiskMetrics(state.df);
+    renderRiskMetrics(state.df, state.sheet);
     const piv = Indicators.pivots(last);
     $('#pivot-r2').textContent = formatINR(piv.r2);
     $('#pivot-r1').textContent = formatINR(piv.r1);
@@ -727,16 +859,25 @@ const App = (() => {
     }
     if (plGrowthEl && !plGrowthEl.value) plGrowthEl.value = defaultGrowth;
 
+    function applyGrowthFloor(g) {
+      return g < 0 ? { used: 5, floored: true } : { used: g, floored: false };
+    }
+
     function updateGrahamFormula() {
       if (!gfEpsEl || !gfGrowthEl) return;
       const eps = parseFloat(gfEpsEl.value) || 0;
-      const g = parseFloat(gfGrowthEl.value) || 0;
+      const gRaw = parseFloat(gfGrowthEl.value) || 0;
+      const { used: g, floored } = applyGrowthFloor(gRaw);
       const v = eps * (8.5 + 2 * g);
       if (eps > 0 && v > 0) {
         $('#gf-result').innerHTML =
-          'Graham Formula Fair Value: <strong>' + formatINR(v) + '</strong>';
+          'Graham Formula Fair Value: <strong>' + formatINR(v) + '</strong>' +
+          (floored
+            ? '<br><span style="font-size:11px;color:var(--text-muted)">Entered growth (' +
+              gRaw.toFixed(1) + '%) is negative — used a 5% floor for this calculation instead.</span>'
+            : '');
       } else if (eps > 0) {
-        $('#gf-result').textContent = 'Not meaningful — growth rate too negative for this formula';
+        $('#gf-result').textContent = 'Enter a growth rate';
       } else {
         $('#gf-result').textContent = 'Enter EPS from Screener';
       }
@@ -749,10 +890,15 @@ const App = (() => {
     function updateLynch() {
       if (!plEpsEl || !plGrowthEl) return;
       const eps = parseFloat(plEpsEl.value) || 0;
-      const g = parseFloat(plGrowthEl.value) || 0;
+      const gRaw = parseFloat(plGrowthEl.value) || 0;
+      const { used: g, floored } = applyGrowthFloor(gRaw);
       if (eps > 0) {
         $('#pl-result').innerHTML =
-          'Peter Lynch Fair Value: <strong>' + formatINR(eps * g) + '</strong>';
+          'Peter Lynch Fair Value: <strong>' + formatINR(eps * g) + '</strong>' +
+          (floored
+            ? '<br><span style="font-size:11px;color:var(--text-muted)">Entered growth (' +
+              gRaw.toFixed(1) + '%) is negative — used a 5% floor for this calculation instead.</span>'
+            : '');
       } else {
         $('#pl-result').textContent = 'Enter EPS from Screener';
       }
@@ -910,16 +1056,35 @@ const App = (() => {
       const [chartRes, sheetRes] = await Promise.all([chartPromise, sheetPromise]);
 
       state.info = chartRes.info || {};
-      if (chartRes.history && chartRes.history.length >= 30) {
-        state.df = Indicators.calculateAll(chartRes.history);
-        state.verdict = VerdictEngine.analyse(state.df, state.info);
-      } else {
-        state.df = null;
-        state.verdict = null;
-      }
 
       if (sheetRes && sheetRes.ok && sheetRes.data) {
         applySheet(sheetRes.data);
+      }
+
+      if (chartRes.history && chartRes.history.length >= 30) {
+        state.df = Indicators.calculateAll(chartRes.history);
+
+        // Merge in the advanced signals so the verdict engine can actually
+        // use them — previously the verdict ran before applySheet(), so it
+        // never saw fundamentals at all, only Yahoo's bare price info.
+        const verdictInfo = Object.assign({}, state.info);
+        if (state.sheet) {
+          const sn = state.sheet.snapshot || {};
+          const gf = grahamFormulaFairValue(state.sheet);
+          const lv = lynchFairValue(state.sheet);
+          verdictInfo.grahamFormulaValue = gf ? gf.value : null;
+          verdictInfo.lynchValue = lv ? lv.value : null;
+          verdictInfo.growthFloored = (gf && gf.floored) || (lv && lv.floored) || false;
+          verdictInfo.piotroski = piotroskiFScore(state.sheet);
+          verdictInfo.dupont = duPontAnalysis(state.sheet, sn);
+        }
+        verdictInfo.riskMetrics = Indicators.riskMetrics(state.df);
+        Object.assign(verdictInfo, fibProximity(state.df));
+
+        state.verdict = VerdictEngine.analyse(state.df, verdictInfo);
+      } else {
+        state.df = null;
+        state.verdict = null;
       }
 
       // If no chart and no sheet, hard fail

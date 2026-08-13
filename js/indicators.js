@@ -276,6 +276,26 @@ const Indicators = (() => {
     }));
   }
 
+  function week52Range(df) {
+    if (!df || !df.length) return null;
+    const window = df.slice(-252); // ~1 trading year
+    let hi = -Infinity;
+    let lo = Infinity;
+    for (const row of window) {
+      if (row.high > hi) hi = row.high;
+      if (row.low < lo) lo = row.low;
+    }
+    const last = df[df.length - 1];
+    if (!isFinite(hi) || !isFinite(lo) || last.close == null) return null;
+    return {
+      high: hi,
+      low: lo,
+      current: last.close,
+      pctFromHigh: ((last.close - hi) / hi) * 100,
+      pctFromLow: ((last.close - lo) / lo) * 100
+    };
+  }
+
   return {
     calculateAll,
     pivots,
@@ -287,6 +307,7 @@ const Indicators = (() => {
     atr,
     aggregateOHLC,
     riskMetrics,
-    fibonacciLevels
+    fibonacciLevels,
+    week52Range
   };
 })();

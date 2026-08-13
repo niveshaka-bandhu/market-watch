@@ -78,6 +78,55 @@ const VerdictEngine = (() => {
       }
     }
 
+    // Graham Formula / Peter Lynch fair value gap
+    if (info.grahamFormulaValue != null && last.close > 0) {
+      const gap = ((info.grahamFormulaValue - last.close) / last.close) * 100;
+      if (gap > 20) bull.push(`Trading ${gap.toFixed(1)}% below Graham Formula fair value — meaningful margin of safety.`);
+      else if (gap < -30) bear.push(`Trading ${Math.abs(gap).toFixed(1)}% above Graham Formula fair value — rich premium.`);
+    }
+    if (info.lynchValue != null && last.close > 0) {
+      const gap = ((info.lynchValue - last.close) / last.close) * 100;
+      if (gap > 20) bull.push(`Trading ${gap.toFixed(1)}% below Peter Lynch fair value estimate.`);
+      else if (gap < -30) bear.push(`Trading ${Math.abs(gap).toFixed(1)}% above Peter Lynch fair value estimate.`);
+    }
+    if (info.growthFloored) {
+      bear.push('TTM growth is negative — Graham Formula/Peter Lynch values above use a conservative 5% floor rather than the actual declining trend.');
+    }
+
+    // Piotroski F-Score (only when enough underlying rows were available)
+    if (info.piotroski && info.piotroski.max >= 5) {
+      const ratio = info.piotroski.score / info.piotroski.max;
+      if (ratio >= 0.75) bull.push(`Piotroski F-Score ${info.piotroski.score}/${info.piotroski.max} — strong fundamental quality checklist.`);
+      else if (ratio <= 0.35) bear.push(`Piotroski F-Score ${info.piotroski.score}/${info.piotroski.max} — weak fundamental quality checklist.`);
+    }
+
+    // DuPont: is ROE coming from real profitability or mostly leverage?
+    if (info.dupont) {
+      if (info.dupont.equityMultiplier > 3 && info.dupont.netMargin < 8) {
+        bear.push('ROE appears leverage-driven (high equity multiplier, thin net margin) rather than operationally strong.');
+      } else if (info.dupont.netMargin > 15 && info.dupont.equityMultiplier < 2.5) {
+        bull.push('ROE is margin-driven with modest leverage — healthier quality of returns.');
+      }
+    }
+
+    // Risk metrics from the price history
+    if (info.riskMetrics) {
+      if (info.riskMetrics.sharpe != null && info.riskMetrics.sharpe < 0) {
+        bear.push("Negative Sharpe ratio over the loaded history — returns haven't compensated for volatility.");
+      }
+      if (info.riskMetrics.maxDrawdown <= -40) {
+        bear.push(`Historical max drawdown of ${info.riskMetrics.maxDrawdown.toFixed(1)}% signals high volatility risk.`);
+      }
+    }
+
+    // Fibonacci proximity from the chart
+    if (info.fibSupport) {
+      bull.push('Price is trading near a key Fibonacci support level from the recent swing range.');
+    }
+    if (info.fibResistance) {
+      bear.push('Price is trading near a key Fibonacci resistance level from the recent swing range.');
+    }
+
     // Score
     const total = bull.length + bear.length;
     const bullRatio = total > 0 ? bull.length / total : 0.5;
