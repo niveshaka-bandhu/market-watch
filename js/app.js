@@ -1175,6 +1175,27 @@ const App = (() => {
     });
     if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(() => {});
 
+    // Android/Chrome PWA install prompt. This event doesn't fire on iOS
+    // Safari, in an already-installed context, or in browsers without
+    // install support — the button just stays hidden in those cases.
+    let deferredInstallPrompt = null;
+    window.addEventListener('beforeinstallprompt', (e) => {
+      e.preventDefault();
+      deferredInstallPrompt = e;
+      show($('#install-row'));
+    });
+    const installBtn = $('#install-btn');
+    if (installBtn) {
+      installBtn.addEventListener('click', async () => {
+        if (!deferredInstallPrompt) return;
+        deferredInstallPrompt.prompt();
+        await deferredInstallPrompt.userChoice;
+        deferredInstallPrompt = null;
+        hide($('#install-row'));
+      });
+    }
+    window.addEventListener('appinstalled', () => hide($('#install-row')));
+
     loadEquityList().then(setupSearch);
     // Don't auto-load heavy analyse on first paint — wait for user (faster)
     // loadTicker();
