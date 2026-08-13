@@ -3,10 +3,11 @@
  */
 
 const Charts = (() => {
-  const isLight =
+  const isMobileDark =
     typeof window !== 'undefined' &&
     window.matchMedia &&
-    window.matchMedia('(prefers-color-scheme: light)').matches;
+    window.matchMedia('(prefers-color-scheme: dark) and (max-width: 768px)').matches;
+  const isLight = !isMobileDark;
 
   const gridColor = isLight ? '#e2e6eb' : '#1a222d';
   const lineColor = isLight ? '#c7ccd3' : '#2a3441';

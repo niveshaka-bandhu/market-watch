@@ -4,8 +4,8 @@
   "description": "Institutional-grade quant analysis dashboard for Indian stocks (NSE/BSE)",
   "start_url": "./index.html",
   "display": "standalone",
-  "background_color": "#0f1419",
-  "theme_color": "#0f1419",
+  "background_color": "#f4f7fe",
+  "theme_color": "#3a2e7d",
   "orientation": "any",
   "icons": [
     {

@@ -1,5 +1,5 @@
 // ========== PASTE YOUR APPS SCRIPT WEB APP URL HERE ==========
-const SHEETS_API = 'https://script.google.com/macros/s/AKfycbxgR0EC7xaqe9H0Wx9gG0pQcpl2Elb-Skoxz_Pz7wPA6N3zTckWQFyb_u6TFfFo7oux/exec';
+const SHEETS_API = 'https://script.google.com/macros/s/YOUR_DEPLOYMENT_ID/exec';
 // ============================================================
 
 const App = (() => {
@@ -368,6 +368,63 @@ const App = (() => {
       );
     }
 
+    function duPontTable(dp) {
+      if (!dp) return '';
+      const rows2 =
+        '<tr><td>Net Profit Margin</td><td>' + dp.netMargin.toFixed(2) + '%</td></tr>' +
+        '<tr><td>Asset Turnover</td><td>' + dp.assetTurnover.toFixed(2) + '×</td></tr>' +
+        '<tr><td>Equity Multiplier (leverage)</td><td>' + dp.equityMultiplier.toFixed(2) + '×</td></tr>' +
+        '<tr><td><strong>Computed ROE</strong></td><td><strong>' + dp.computedRoe.toFixed(2) + '%</strong></td></tr>' +
+        (dp.reportedRoe != null
+          ? '<tr><td>Screener-reported ROE</td><td>' + dp.reportedRoe + '%</td></tr>'
+          : '');
+      return (
+        '<div class="card" style="margin-top:14px;overflow-x:auto">' +
+        '<h3>DuPont ROE Decomposition</h3>' +
+        '<p style="font-size:11.5px;color:var(--text-muted);margin-bottom:10px">' +
+        'Breaks ROE into margin, efficiency, and leverage — shows what\'s actually driving it.' +
+        '</p>' +
+        '<table class="data-table"><tbody>' + rows2 + '</tbody></table></div>'
+      );
+    }
+
+    function piotroskiTable(pt) {
+      if (!pt) return '';
+      const rows3 = pt.checks
+        .filter((c) => c.pass !== null)
+        .map(
+          (c) =>
+            '<tr><td>' + c.label + '</td><td style="color:' +
+            (c.pass ? 'var(--green)' : 'var(--red)') + '">' + (c.pass ? '✓ Pass' : '✗ Fail') + '</td></tr>'
+        )
+        .join('');
+      return (
+        '<div class="card" style="margin-top:14px;overflow-x:auto">' +
+        '<h3>Piotroski F-Score: ' + pt.score + ' / ' + pt.max + '</h3>' +
+        '<p style="font-size:11.5px;color:var(--text-muted);margin-bottom:10px">' +
+        (pt.max < 9
+          ? (9 - pt.max) + ' of the 9 standard criteria couldn\'t be evaluated (Screener doesn\'t report that row for this company) and are excluded rather than counted as fails. '
+          : '') +
+        'Fundamental quality checklist — higher is stronger.' +
+        '</p>' +
+        '<table class="data-table"><tbody>' + rows3 + '</tbody></table></div>'
+      );
+    }
+
+    function ratiosTable(ratios) {
+      if (!ratios.length) return '';
+      const rows4 = ratios.map((r) => '<tr><td>' + r.label + '</td><td>' + r.val + '</td></tr>').join('');
+      return (
+        '<div class="card" style="margin-top:14px;overflow-x:auto">' +
+        '<h3>Additional Valuation Ratios</h3>' +
+        '<table class="data-table"><tbody>' + rows4 + '</tbody></table></div>'
+      );
+    }
+
+    const dupont = duPontAnalysis(d, sn);
+    const piotroski = piotroskiFScore(d);
+    const extraRatios = advancedRatios(d, sn);
+
     host.innerHTML =
       '<div style="margin-top:8px">' +
       '<div class="card">' +
@@ -409,6 +466,9 @@ const App = (() => {
       ]) +
       '</div>' +
       growthTable(g, pg, pc, roe) +
+      duPontTable(dupont) +
+      piotroskiTable(piotroski) +
+      ratiosTable(extraRatios) +
       htmlTable('Quarterly results', t.quarterly) +
       htmlTable('Profit & Loss', t.profitLoss) +
       htmlTable('Balance Sheet', t.balanceSheet) +
@@ -416,6 +476,118 @@ const App = (() => {
       htmlTable('Ratios', t.ratios) +
       htmlTable('Shareholding Pattern', t.shareholding) +
       '</div>';
+  }
+
+  function parseNum(v) {
+    if (v == null) return null;
+    const s = String(v).replace(/[,%₹]/g, '').replace(/Cr\.?/gi, '').replace(/Rs\.?/gi, '').trim();
+    if (s === '' || s === '-' || s === '--') return null;
+    const n = parseFloat(s);
+    return isNaN(n) ? null : n;
+  }
+
+  function tableRow(table, labelPart) {
+    if (!table || !table.rows) return null;
+    const lp = labelPart.toLowerCase();
+    return table.rows.find((r) => (r.label || '').toLowerCase().indexOf(lp) >= 0) || null;
+  }
+
+  // Last `count` numeric values for a labeled row (oldest→newest), e.g.
+  // latestValues(balanceSheet, 'total assets', 2) -> [prevYear, latestYear].
+  function latestValues(table, labelPart, count) {
+    const row = tableRow(table, labelPart);
+    if (!row) return [];
+    const nums = row.cells.map(parseNum).filter((v) => v != null);
+    return nums.slice(-count);
+  }
+
+  function duPontAnalysis(d, sn) {
+    if (d.patTtmCr == null || d.salesTtmCr == null || d.totalAssetsCr == null) return null;
+    const equity = (d.equityCapitalCr || 0) + (d.reservesCr || 0);
+    if (!equity || !d.totalAssetsCr) return null;
+    const netMargin = d.patTtmCr / d.salesTtmCr;
+    const assetTurnover = d.salesTtmCr / d.totalAssetsCr;
+    const equityMultiplier = d.totalAssetsCr / equity;
+    const computedRoe = netMargin * assetTurnover * equityMultiplier * 100;
+    return {
+      netMargin: netMargin * 100,
+      assetTurnover,
+      equityMultiplier,
+      computedRoe,
+      reportedRoe: sn.roe != null ? sn.roe : null
+    };
+  }
+
+  function piotroskiFScore(d) {
+    const t = d.tables || {};
+    const pl = t.profitLoss;
+    const bs = t.balanceSheet;
+    const cf = t.cashFlow;
+    const rt = t.ratios;
+
+    const checks = [];
+    function add(label, pass) {
+      // pass === null means "not enough data to evaluate" — excluded from
+      // the score rather than counted as a fail, so missing Screener rows
+      // don't silently drag the score down.
+      checks.push({ label, pass });
+    }
+
+    add('Positive net profit (TTM)', d.patTtmCr != null ? d.patTtmCr > 0 : null);
+    add('Positive operating cash flow', d.cfoCr != null ? d.cfoCr > 0 : null);
+    add('CFO exceeds net profit (earnings quality)',
+      d.cfoCr != null && d.patTtmCr != null ? d.cfoCr > d.patTtmCr : null);
+
+    const ta = latestValues(bs, 'total assets', 2);
+    const np = latestValues(pl, 'net profit', 2);
+    add('ROA improved vs prior year',
+      ta.length === 2 && np.length === 2 && ta[0] && ta[1]
+        ? np[1] / ta[1] > np[0] / ta[0]
+        : null);
+
+    const borrow = latestValues(bs, 'borrowings', 2);
+    add('Leverage (borrowings/assets) reduced vs prior year',
+      borrow.length === 2 && ta.length === 2 && ta[0] && ta[1]
+        ? borrow[1] / ta[1] < borrow[0] / ta[0]
+        : null);
+
+    const curRatio = latestValues(rt, 'current ratio', 2);
+    add('Current ratio improved vs prior year',
+      curRatio.length === 2 ? curRatio[1] > curRatio[0] : null);
+
+    const eqCap = latestValues(bs, 'equity capital', 2);
+    add('No new equity dilution vs prior year',
+      eqCap.length === 2 ? eqCap[1] <= eqCap[0] : null);
+
+    const opm = latestValues(pl, 'opm', 2);
+    add('Operating margin improved vs prior year',
+      opm.length === 2 ? opm[1] > opm[0] : null);
+
+    const sales = latestValues(pl, 'sales', 2);
+    add('Asset turnover improved vs prior year',
+      sales.length === 2 && ta.length === 2 && ta[0] && ta[1]
+        ? sales[1] / ta[1] > sales[0] / ta[0]
+        : null);
+
+    const evaluated = checks.filter((c) => c.pass !== null);
+    if (!evaluated.length) return null;
+    const score = evaluated.filter((c) => c.pass).length;
+    return { score, max: evaluated.length, checks };
+  }
+
+  function advancedRatios(d, sn) {
+    const out = [];
+    const growthForPeg = d.profitGrowth && d.profitGrowth.y5 != null ? d.profitGrowth.y5 : null;
+    if (sn.stockPE != null && growthForPeg != null && growthForPeg > 0) {
+      out.push({ label: 'PEG Ratio (5Y profit growth)', val: (sn.stockPE / growthForPeg).toFixed(2) });
+    }
+    if (d.freeCashflowCr != null && sn.marketCapCr != null && sn.marketCapCr > 0) {
+      out.push({ label: 'FCF Yield', val: ((d.freeCashflowCr / sn.marketCapCr) * 100).toFixed(2) + '%' });
+    }
+    if (sn.stockPE != null && sn.stockPE > 0) {
+      out.push({ label: 'Earnings Yield', val: ((1 / sn.stockPE) * 100).toFixed(2) + '%' });
+    }
+    return out;
   }
 
   function drawPriceChart() {
