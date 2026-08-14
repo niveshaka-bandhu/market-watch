@@ -67,6 +67,9 @@ body {
   gap: 16px;
   align-items: center;
   margin-bottom: 20px;
+  position: sticky;
+  top: 0;
+  z-index: 200;
 }
 
 .control-bar .control-group label {
@@ -654,4 +657,115 @@ table.data-table thead th {
   background: var(--surface-2);
   color: var(--text-muted);
   font-size: 11px;
+}
+
+/* ===== Mobile-only app shell (bottom nav + More sheet) ===== */
+/* Everything in this block only applies at mobile widths — desktop is
+   untouched outside of it. */
+.mobile-bottom-nav { display: none; }
+.more-sheet { display: none; }
+
+@media (max-width: 768px) {
+  body { padding-bottom: 76px; } /* clear the fixed bottom nav */
+
+  /* Desktop-only controls: workspace toggle and tab bar are replaced by
+     the bottom nav on mobile. */
+  #workspace-group,
+  .tabs { display: none !important; }
+
+  /* Search bar becomes the only thing in the sticky top bar on mobile —
+     centered, full width, no label text. */
+  .control-bar { justify-content: center; padding: 10px 12px; }
+  #lookup-group { margin-left: 0 !important; max-width: none !important; }
+  #lookup-group .lookup-label { display: none; }
+
+  .container { padding: 10px 12px 24px; }
+
+  /* Bottom nav bar */
+  .mobile-bottom-nav {
+    display: flex;
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 300;
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    padding: 8px 12px calc(8px + env(safe-area-inset-bottom));
+    justify-content: space-around;
+    align-items: flex-end;
+  }
+  .mnav-btn {
+    background: none;
+    border: none;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 4px 10px;
+  }
+  .mnav-btn.active { color: var(--accent); }
+  .mnav-icon { font-size: 20px; line-height: 1; }
+  .mnav-home {
+    position: relative;
+    top: -18px;
+  }
+  .mnav-home-circle {
+    width: 52px;
+    height: 52px;
+    border-radius: 999px;
+    background: var(--accent);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 6px 16px rgba(0,0,0,0.25);
+    overflow: hidden;
+    border: 3px solid var(--surface);
+  }
+  .mnav-home-circle img { width: 100%; height: 100%; object-fit: cover; }
+
+  /* More bottom sheet */
+  .more-sheet.open { display: block; }
+  .more-sheet-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.4);
+    z-index: 350;
+  }
+  .more-sheet-panel {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 360;
+    background: var(--surface);
+    border-radius: 18px 18px 0 0;
+    padding: 10px 16px calc(16px + env(safe-area-inset-bottom));
+    box-shadow: 0 -8px 30px rgba(0,0,0,0.25);
+  }
+  .more-sheet-handle {
+    width: 40px;
+    height: 4px;
+    border-radius: 999px;
+    background: var(--border);
+    margin: 6px auto 14px;
+  }
+  .more-item {
+    display: block;
+    width: 100%;
+    text-align: left;
+    background: none;
+    border: none;
+    border-bottom: 1px solid var(--border);
+    padding: 14px 4px;
+    font-size: 15px;
+    font-weight: 500;
+    color: var(--text);
+    cursor: pointer;
+  }
+  .more-item:last-child { border-bottom: none; }
 }

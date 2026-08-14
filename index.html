@@ -12,8 +12,8 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-title" content="QuantVerdict" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <link rel="apple-touch-icon" href="icons/icon-512.png" />
-  <link rel="apple-touch-startup-image" href="icons/icon-512.png" />
+  <link rel="apple-touch-icon" href="icon-512.png" />
+  <link rel="apple-touch-startup-image" href="icon-512.png" />
   <meta name="description" content="Institutional quant analysis dashboard for Indian stocks (NSE/BSE)" />
   <title>Indian Quant Verdict Dashboard</title>
   <link rel="manifest" href="manifest.json" />
@@ -24,9 +24,9 @@
 </head>
 <body>
   <div class="container">
-    <!-- Top Control Bar -->
-    <div class="control-bar">
-      <div class="control-group">
+    <!-- Top Control Bar — sticky on all pages/views -->
+    <div class="control-bar" id="top-bar">
+      <div class="control-group" id="workspace-group">
         <label>Workspace Selection</label>
         <div class="radio-group">
           <label>
@@ -40,19 +40,7 @@
         </div>
       </div>
 
-      <div class="control-group">
-        <label>&nbsp;</label>
-        <label class="checkbox-wrap" style="margin-top:0">
-          <input type="checkbox" id="show-bb" checked />
-          Show Bollinger Bands
-        </label>
-        <label class="checkbox-wrap" style="margin-top:6px">
-          <input type="checkbox" id="show-fib" />
-          Show Fibonacci Levels
-        </label>
-      </div>
-
-      <div class="control-group stock-lookup" style="margin-left:auto;flex:1;min-width:280px;max-width:520px">
+      <div class="control-group stock-lookup" id="lookup-group" style="margin-left:auto;flex:1;min-width:280px;max-width:520px">
         <label class="lookup-label">STOCK LOOKUP</label>
         <div class="lookup-row">
           <div class="lookup-wrap">
@@ -112,6 +100,7 @@
           </div>
         </div>
 
+        <div class="section-title" id="chart-analysis-heading" style="margin-top:4px">📊 Chart Analysis</div>
         <div class="card" style="margin-bottom:20px">
           <div class="section-title" style="justify-content:space-between">
             <span>📊 Price Action Engine</span>
@@ -121,9 +110,20 @@
               <label><input type="radio" name="chart-tf" value="M" /><span>Month</span></label>
             </div>
           </div>
+          <div style="display:flex;gap:18px;flex-wrap:wrap;margin-bottom:10px">
+            <label class="checkbox-wrap" style="margin-top:0">
+              <input type="checkbox" id="show-bb" checked />
+              Show Bollinger Bands
+            </label>
+            <label class="checkbox-wrap" style="margin-top:0">
+              <input type="checkbox" id="show-fib" />
+              Show Fibonacci Levels
+            </label>
+          </div>
           <div id="price-chart"></div>
         </div>
 
+        <div class="section-title" style="margin-top:4px">💎 Screener Fundamental Analysis</div>
         <div class="two-col">
           <div class="card">
             <h3>📐 Intraday Pivot Target Framework</h3>
@@ -303,6 +303,30 @@
     <footer>
       Indian Quant Verdict · Built for NSE/BSE · PWA-ready · Host on GitHub Pages
     </footer>
+  </div>
+
+  <!-- Mobile-only bottom nav — hidden on desktop via CSS -->
+  <nav id="mobile-bottom-nav" class="mobile-bottom-nav">
+    <button type="button" class="mnav-btn" data-nav="quality">
+      <span class="mnav-icon">🧬</span><span>Quality</span>
+    </button>
+    <button type="button" class="mnav-btn mnav-home" data-nav="home">
+      <span class="mnav-home-circle"><img src="icon-512.png" alt="" /></span>
+      <span>Home</span>
+    </button>
+    <button type="button" class="mnav-btn" data-nav="more">
+      <span class="mnav-icon">☰</span><span>More</span>
+    </button>
+  </nav>
+
+  <div id="more-sheet" class="more-sheet hidden">
+    <div class="more-sheet-backdrop" id="more-sheet-backdrop"></div>
+    <div class="more-sheet-panel">
+      <div class="more-sheet-handle"></div>
+      <button type="button" class="more-item" data-tab="monte">🎲 Monte Carlo</button>
+      <button type="button" class="more-item" data-tab="backtest">🕒 Strategy Backtester</button>
+      <button type="button" class="more-item" data-tab="notes">📌 Notes</button>
+    </div>
   </div>
 
   <script src="js/data.js"></script>

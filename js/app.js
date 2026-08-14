@@ -1100,13 +1100,9 @@ const App = (() => {
       $('#asset-title').textContent = 'Strategic Asset Intelligence Center (' + state.rawInput + ')';
 
       if (state.view === 'market') {
-        show($('#view-market'));
-        hide($('#view-quant'));
-        renderMarketView();
+        setWorkspace('market');
       } else {
-        hide($('#view-market'));
-        show($('#view-quant'));
-        renderQuantView();
+        setWorkspace('quant');
       }
 
       // Soft warning if chart missing but Screener OK
@@ -1126,22 +1122,69 @@ const App = (() => {
     }
   }
 
+  function setWorkspace(view) {
+    state.view = view;
+    const radio = document.querySelector('input[name="workspace"][value="' + view + '"]');
+    if (radio) radio.checked = true;
+    $$('.mnav-btn[data-nav]').forEach((b) => b.classList.remove('active'));
+    const navBtn = document.querySelector('.mnav-btn[data-nav="' + (view === 'market' ? 'home' : 'quality') + '"]');
+    if (navBtn) navBtn.classList.add('active');
+    if (!state.df) return;
+    if (view === 'market') {
+      show($('#view-market'));
+      hide($('#view-quant'));
+      renderMarketView();
+    } else {
+      hide($('#view-market'));
+      show($('#view-quant'));
+      renderQuantView();
+    }
+  }
+
+  function setTab(tabName) {
+    $$('.tab-btn').forEach((x) => x.classList.remove('active'));
+    $$('.tab-content').forEach((c) => c.classList.remove('active'));
+    const btn = document.querySelector('.tab-btn[data-tab="' + tabName + '"]');
+    if (btn) btn.classList.add('active');
+    const tab = $('#tab-' + tabName);
+    if (tab) tab.classList.add('active');
+  }
+
+  function openMoreSheet() {
+    const sheet = $('#more-sheet');
+    if (sheet) sheet.classList.add('open');
+  }
+  function closeMoreSheet() {
+    const sheet = $('#more-sheet');
+    if (sheet) sheet.classList.remove('open');
+  }
+
   function init() {
     $$('input[name="workspace"]').forEach((radio) => {
-      radio.addEventListener('change', (e) => {
-        state.view = e.target.value;
-        if (!state.df) return;
-        if (state.view === 'market') {
-          show($('#view-market'));
-          hide($('#view-quant'));
-          renderMarketView();
-        } else {
-          hide($('#view-market'));
-          show($('#view-quant'));
-          renderQuantView();
+      radio.addEventListener('change', (e) => setWorkspace(e.target.value));
+    });
+    $$('.mnav-btn[data-nav]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const nav = btn.dataset.nav;
+        if (nav === 'home') {
+          setWorkspace('market');
+        } else if (nav === 'quality') {
+          setWorkspace('quant');
+          setTab('quality');
+        } else if (nav === 'more') {
+          openMoreSheet();
         }
       });
     });
+    $$('.more-item[data-tab]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        setWorkspace('quant');
+        setTab(btn.dataset.tab);
+        closeMoreSheet();
+      });
+    });
+    const moreBackdrop = $('#more-sheet-backdrop');
+    if (moreBackdrop) moreBackdrop.addEventListener('click', closeMoreSheet);
     const bb = $('#show-bb');
     if (bb)
       bb.addEventListener('change', () => {
@@ -1165,13 +1208,7 @@ const App = (() => {
     const btn = $('#analyse-btn');
     if (btn) btn.addEventListener('click', loadTicker);
     $$('.tab-btn').forEach((b) => {
-      b.addEventListener('click', () => {
-        $$('.tab-btn').forEach((x) => x.classList.remove('active'));
-        $$('.tab-content').forEach((c) => c.classList.remove('active'));
-        b.classList.add('active');
-        const tab = $('#tab-' + b.dataset.tab);
-        if (tab) tab.classList.add('active');
-      });
+      b.addEventListener('click', () => setTab(b.dataset.tab));
     });
     if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(() => {});
 
@@ -1195,6 +1232,9 @@ const App = (() => {
       });
     }
     window.addEventListener('appinstalled', () => hide($('#install-row')));
+
+    const homeNavBtn = document.querySelector('.mnav-btn[data-nav="home"]');
+    if (homeNavBtn) homeNavBtn.classList.add('active');
 
     loadEquityList().then(setupSearch);
     // Don't auto-load heavy analyse on first paint — wait for user (faster)
