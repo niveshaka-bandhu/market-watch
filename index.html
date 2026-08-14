@@ -123,7 +123,15 @@
           <div id="price-chart"></div>
         </div>
 
-        <div class="section-title" style="margin-top:4px">💎 Screener Fundamental Analysis</div>
+        <div class="card" style="margin-bottom:20px">
+          <h3>🕯️ Candlestick Patterns</h3>
+          <p style="font-size:12px;color:var(--text-muted);margin-bottom:10px">
+            Detected from the most recent candles — short-term signals, not a forecast.
+          </p>
+          <div id="candlestick-patterns"></div>
+        </div>
+
+        <div class="section-title" id="fundamentals-heading" style="margin-top:4px">💎 Screener Fundamental Analysis</div>
         <div class="two-col">
           <div class="card">
             <h3>📐 Intraday Pivot Target Framework</h3>
@@ -307,6 +315,9 @@
 
   <!-- Mobile-only bottom nav — hidden on desktop via CSS -->
   <nav id="mobile-bottom-nav" class="mobile-bottom-nav">
+    <button type="button" class="mnav-btn" data-nav="chart">
+      <span class="mnav-icon">📊</span><span>Chart</span>
+    </button>
     <button type="button" class="mnav-btn" data-nav="quality">
       <span class="mnav-icon">🧬</span><span>Quality</span>
     </button>
@@ -314,12 +325,15 @@
       <span class="mnav-home-circle"><img src="icon-512.png" alt="" /></span>
       <span>Home</span>
     </button>
+    <button type="button" class="mnav-btn" data-nav="fundamentals">
+      <span class="mnav-icon">💎</span><span>Fund.</span>
+    </button>
     <button type="button" class="mnav-btn" data-nav="more">
       <span class="mnav-icon">☰</span><span>More</span>
     </button>
   </nav>
 
-  <div id="more-sheet" class="more-sheet hidden">
+  <div id="more-sheet" class="more-sheet">
     <div class="more-sheet-backdrop" id="more-sheet-backdrop"></div>
     <div class="more-sheet-panel">
       <div class="more-sheet-handle"></div>

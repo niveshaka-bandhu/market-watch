@@ -215,7 +215,169 @@ const Indicators = (() => {
     }));
   }
 
-  // ---------- Advanced analysis ----------
+  // ---------- Candlestick patterns ----------
+
+  function detectCandlestickPatterns(df) {
+    if (!df || df.length < 3) return [];
+    const c0 = df[df.length - 1]; // most recent (completed) candle
+    const c1 = df[df.length - 2];
+    const c2 = df[df.length - 3];
+    if (!c0 || !c1 || !c2) return [];
+
+    const bodySize = (c) => Math.abs(c.close - c.open);
+    const candleRange = (c) => Math.max(c.high - c.low, 0.0001);
+    const isBullish = (c) => c.close > c.open;
+    const isBearish = (c) => c.close < c.open;
+    const upperWick = (c) => c.high - Math.max(c.open, c.close);
+    const lowerWick = (c) => Math.min(c.open, c.close) - c.low;
+
+    const r0 = candleRange(c0);
+    const b0 = bodySize(c0);
+    const b1 = bodySize(c1);
+    const b2 = bodySize(c2);
+    const patterns = [];
+
+    if (b0 / r0 < 0.1) {
+      patterns.push({
+        name: 'Doji',
+        signal: 'neutral',
+        note: 'Open ≈ close — indecision, often precedes a pause or reversal.'
+      });
+    }
+
+    if (lowerWick(c0) >= 2 * b0 && upperWick(c0) <= b0 * 0.3 && b0 / r0 < 0.4) {
+      patterns.push({
+        name: 'Hammer',
+        signal: 'bullish',
+        note: 'Long lower wick, small body near the top — potential bullish reversal, especially after a decline.'
+      });
+    }
+
+    if (upperWick(c0) >= 2 * b0 && lowerWick(c0) <= b0 * 0.3 && b0 / r0 < 0.4) {
+      patterns.push({
+        name: 'Shooting Star',
+        signal: 'bearish',
+        note: 'Long upper wick, small body near the bottom — potential bearish reversal, especially after a rally.'
+      });
+    }
+
+    if (isBearish(c1) && isBullish(c0) && c0.open <= c1.close && c0.close >= c1.open) {
+      patterns.push({
+        name: 'Bullish Engulfing',
+        signal: 'bullish',
+        note: "Latest candle's body fully engulfs the prior red candle — buyers took control."
+      });
+    }
+
+    if (isBullish(c1) && isBearish(c0) && c0.open >= c1.close && c0.close <= c1.open) {
+      patterns.push({
+        name: 'Bearish Engulfing',
+        signal: 'bearish',
+        note: "Latest candle's body fully engulfs the prior green candle — sellers took control."
+      });
+    }
+
+    if (
+      b0 < b1 * 0.6 &&
+      Math.max(c0.open, c0.close) <= Math.max(c1.open, c1.close) &&
+      Math.min(c0.open, c0.close) >= Math.min(c1.open, c1.close) &&
+      ((isBullish(c1) && isBearish(c0)) || (isBearish(c1) && isBullish(c0)))
+    ) {
+      patterns.push({
+        name: 'Harami',
+        signal: 'neutral',
+        note: "Small body contained within the prior candle's larger body — momentum stalling."
+      });
+    }
+
+    if (
+      isBearish(c2) &&
+      b1 / candleRange(c1) < 0.4 &&
+      isBullish(c0) &&
+      c0.close > (c2.open + c2.close) / 2
+    ) {
+      patterns.push({
+        name: 'Morning Star',
+        signal: 'bullish',
+        note: '3-candle bullish reversal: sharp decline, an indecisive pause, then a strong recovery.'
+      });
+    }
+
+    if (
+      isBullish(c2) &&
+      b1 / candleRange(c1) < 0.4 &&
+      isBearish(c0) &&
+      c0.close < (c2.open + c2.close) / 2
+    ) {
+      patterns.push({
+        name: 'Evening Star',
+        signal: 'bearish',
+        note: '3-candle bearish reversal: sharp rally, an indecisive pause, then a strong drop.'
+      });
+    }
+
+    if (
+      b0 / r0 > 0.85 &&
+      upperWick(c0) <= r0 * 0.05 &&
+      lowerWick(c0) <= r0 * 0.05
+    ) {
+      patterns.push({
+        name: isBullish(c0) ? 'Bullish Marubozu' : 'Bearish Marubozu',
+        signal: isBullish(c0) ? 'bullish' : 'bearish',
+        note: 'Almost no wicks, full-body candle — one side was in control the entire session, strong momentum.'
+      });
+    }
+
+    if (b0 / r0 < 0.3 && upperWick(c0) > b0 * 0.8 && lowerWick(c0) > b0 * 0.8) {
+      patterns.push({
+        name: 'Spinning Top',
+        signal: 'neutral',
+        note: 'Small body with wicks on both sides — a tug-of-war between buyers and sellers, momentum may be fading.'
+      });
+    }
+
+    return patterns;
+  }
+
+  // Checks whether the latest close has broken above/below its recent
+  // consolidation range, optionally confirmed by above-average volume —
+  // classic breakout/breakdown read, computed purely from OHLCV.
+  function detectBreakout(df, lookback) {
+    lookback = lookback || 20;
+    if (!df || df.length < lookback + 5) return null;
+    const window = df.slice(-(lookback + 1), -1); // exclude the latest candle itself
+    const last = df[df.length - 1];
+    if (!window.length || last.close == null) return null;
+
+    const rangeHigh = Math.max(...window.map((r) => r.high));
+    const rangeLow = Math.min(...window.map((r) => r.low));
+    const avgVolume = window.reduce((a, r) => a + (r.volume || 0), 0) / window.length;
+    const volConfirmed = last.volume != null && avgVolume > 0 && last.volume > avgVolume * 1.5;
+
+    if (last.close > rangeHigh) {
+      return {
+        type: 'breakout',
+        level: rangeHigh,
+        volConfirmed,
+        note:
+          `Closed above the ${lookback}-day consolidation high (₹${rangeHigh.toFixed(1)})` +
+          (volConfirmed ? ', confirmed by volume well above average.' : ', but on unremarkable volume — watch for confirmation.')
+      };
+    }
+    if (last.close < rangeLow) {
+      return {
+        type: 'breakdown',
+        level: rangeLow,
+        volConfirmed,
+        note:
+          `Closed below the ${lookback}-day consolidation low (₹${rangeLow.toFixed(1)})` +
+          (volConfirmed ? ', confirmed by volume well above average.' : ', but on unremarkable volume — watch for confirmation.')
+      };
+    }
+    return null;
+  }
+
+
 
   const RISK_FREE_RATE = 0.07; // approx. Indian 10Y G-Sec, used for Sharpe
 
@@ -296,6 +458,17 @@ const Indicators = (() => {
     };
   }
 
+  function volatilityRange(riskMetrics, currentPrice, tradingDays) {
+    if (!riskMetrics || currentPrice == null || riskMetrics.annualVol == null) return null;
+    const dailyVol = riskMetrics.annualVol / 100 / Math.sqrt(252);
+    const periodVol = dailyVol * Math.sqrt(tradingDays);
+    return {
+      upper: currentPrice * (1 + periodVol),
+      lower: currentPrice * (1 - periodVol),
+      pctRange: periodVol * 100
+    };
+  }
+
   return {
     calculateAll,
     pivots,
@@ -308,6 +481,9 @@ const Indicators = (() => {
     aggregateOHLC,
     riskMetrics,
     fibonacciLevels,
-    week52Range
+    week52Range,
+    detectCandlestickPatterns,
+    detectBreakout,
+    volatilityRange
   };
 })();

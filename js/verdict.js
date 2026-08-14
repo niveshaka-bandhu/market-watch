@@ -127,6 +127,20 @@ const VerdictEngine = (() => {
       bear.push('Price is trading near a key Fibonacci resistance level from the recent swing range.');
     }
 
+    // Candlestick patterns from the most recent candles
+    if (info.candlePatterns && info.candlePatterns.length) {
+      info.candlePatterns.forEach((p) => {
+        if (p.signal === 'bullish') bull.push(`Candlestick: ${p.name} detected — ${p.note}`);
+        else if (p.signal === 'bearish') bear.push(`Candlestick: ${p.name} detected — ${p.note}`);
+      });
+    }
+
+    // 20-day breakout/breakdown
+    if (info.breakout) {
+      if (info.breakout.type === 'breakout') bull.push(`Breakout: ${info.breakout.note}`);
+      else bear.push(`Breakdown: ${info.breakout.note}`);
+    }
+
     // Score
     const total = bull.length + bear.length;
     const bullRatio = total > 0 ? bull.length / total : 0.5;

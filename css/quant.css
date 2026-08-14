@@ -701,12 +701,14 @@ table.data-table thead th {
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 4px;
-    font-size: 11px;
+    gap: 3px;
+    font-size: 10px;
     font-weight: 600;
     color: var(--text-muted);
     cursor: pointer;
-    padding: 4px 10px;
+    padding: 4px 4px;
+    flex: 1;
+    min-width: 0;
   }
   .mnav-btn.active { color: var(--accent); }
   .mnav-icon { font-size: 20px; line-height: 1; }
@@ -726,7 +728,7 @@ table.data-table thead th {
     overflow: hidden;
     border: 3px solid var(--surface);
   }
-  .mnav-home-circle img { width: 100%; height: 100%; object-fit: cover; }
+  .mnav-home-circle img { width: 78%; height: 78%; object-fit: contain; }
 
   /* More bottom sheet */
   .more-sheet.open { display: block; }

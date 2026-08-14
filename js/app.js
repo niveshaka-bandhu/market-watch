@@ -628,9 +628,9 @@ const App = (() => {
     return { fibSupport: support, fibResistance: resistance };
   }
 
-  function returnProjection(d, sn, currentPrice) {
+  function returnProjection(d, sn, currentPrice, riskMetrics) {
     if (currentPrice == null || currentPrice <= 0) return null;
-    const out = { trend: {}, reversion: {} };
+    const out = { trend: {}, reversion: {}, volRange: {} };
     let any = false;
 
     // Scenario 1: extrapolate Screener's own historical price CAGR forward.
@@ -638,6 +638,8 @@ const App = (() => {
     // actually hold.
     const pc = d.priceCagr || {};
     if (pc.y1 != null) {
+      out.trend.threeMonth = (Math.pow(1 + pc.y1 / 100, 0.25) - 1) * 100;
+      out.trend.sixMonth = (Math.pow(1 + pc.y1 / 100, 0.5) - 1) * 100;
       out.trend.oneYear = pc.y1;
       any = true;
     }
@@ -647,8 +649,10 @@ const App = (() => {
     }
 
     // Scenario 2: what re-rating to the Graham Formula / Peter Lynch fair
-    // value (averaged, using the same 5% growth floor rule) would imply, if
-    // it happened over 1 year vs gradually over 5.
+    // value (averaged, using the same 5% growth floor rule) would imply, at
+    // different horizons. 3M/6M assume only a fraction of the gap closes
+    // (re-rating takes time); 1Y assumes it closes fully; 5Y assumes it
+    // closes then compounds at the floored growth rate.
     const gf = grahamFormulaFairValue(d);
     const lv = lynchFairValue(d);
     const fairValues = [gf && gf.value, lv && lv.value].filter((v) => v != null && v > 0);
@@ -657,9 +661,8 @@ const App = (() => {
       const gapPct = ((avgFair - currentPrice) / currentPrice) * 100;
       out.reversion.fairValue = avgFair;
       out.reversion.gapPct = gapPct;
-      // 1Y: assume the gap closes fully within a year (aggressive).
-      // 5Y: assume it closes gradually, compounding at the floored growth
-      // rate once fair value is reached.
+      out.reversion.threeMonth = gapPct * 0.25;
+      out.reversion.sixMonth = gapPct * 0.5;
       out.reversion.oneYear = gapPct;
       const growth = gf && gf.rawGrowth != null ? gf.rawGrowth : null;
       const flooredGrowth = growth != null && growth < 0 ? 5 : growth;
@@ -669,15 +672,54 @@ const App = (() => {
       any = true;
     }
 
+    // Scenario 3: volatility-implied range (±1 std dev) at 3M/6M — a
+    // statistically grounded short-term range rather than a point guess,
+    // derived purely from the stock's own historical price volatility.
+    if (riskMetrics) {
+      const r3 = Indicators.volatilityRange(riskMetrics, currentPrice, 63); // ~3 trading months
+      const r6 = Indicators.volatilityRange(riskMetrics, currentPrice, 126); // ~6 trading months
+      if (r3) out.volRange.threeMonth = r3;
+      if (r6) out.volRange.sixMonth = r6;
+      if (r3 || r6) any = true;
+    }
+
     return any ? out : null;
   }
 
   function drawPriceChart() {
-
     if (!state.df || typeof Charts === 'undefined') return;
     const data = Indicators.aggregateOHLC(state.df, state.chartTimeframe);
     const fib = state.fibEnabled ? Indicators.fibonacciLevels(data, 130) : null;
     Charts.priceChart(data, state.showBollinger, fib);
+  }
+
+  function renderCandlestickPatterns(df) {
+    const host = $('#candlestick-patterns');
+    if (!host) return;
+    const patterns = Indicators.detectCandlestickPatterns(df);
+    const breakout = Indicators.detectBreakout(df, 20);
+    const colorFor = { bullish: 'var(--green)', bearish: 'var(--red)', neutral: 'var(--text-muted)' };
+    let html = '';
+    if (breakout) {
+      const signal = breakout.type === 'breakout' ? 'bullish' : 'bearish';
+      html +=
+        '<div style="margin-bottom:10px;padding-left:10px;border-left:3px solid ' + colorFor[signal] + '">' +
+        '<div style="font-weight:600;color:' + colorFor[signal] + '">' +
+        (breakout.type === 'breakout' ? '20-Day Breakout' : '20-Day Breakdown') +
+        '</div><div style="font-size:12.5px;color:var(--text-muted)">' + breakout.note + '</div></div>';
+    }
+    if (patterns.length) {
+      html += patterns
+        .map(
+          (p) =>
+            '<div style="margin-bottom:10px;padding-left:10px;border-left:3px solid ' + colorFor[p.signal] + '">' +
+            '<div style="font-weight:600;color:' + colorFor[p.signal] + '">' + p.name +
+            ' <span style="font-size:11px;text-transform:uppercase;font-weight:600">(' + p.signal + ')</span></div>' +
+            '<div style="font-size:12.5px;color:var(--text-muted)">' + p.note + '</div></div>'
+        )
+        .join('');
+    }
+    host.innerHTML = html || '<p style="font-size:13px;color:var(--text-muted)">No notable pattern or breakout on the latest candle(s).</p>';
   }
 
   function renderRiskMetrics(df, sheet) {
@@ -710,10 +752,10 @@ const App = (() => {
     }
     host.innerHTML = html || '<p style="font-size:12px;color:var(--text-muted)">Not enough price history for risk analytics.</p>';
 
-    renderReturnProjection(df, sheet);
+    renderReturnProjection(df, sheet, m);
   }
 
-  function renderReturnProjection(df, sheet) {
+  function renderReturnProjection(df, sheet, riskMetrics) {
     const host = $('#return-projection');
     if (!host) return;
     if (!df || !df.length || !sheet) {
@@ -721,35 +763,49 @@ const App = (() => {
       return;
     }
     const currentPrice = df[df.length - 1].close;
-    const proj = returnProjection(sheet, sheet.snapshot || {}, currentPrice);
+    const proj = returnProjection(sheet, sheet.snapshot || {}, currentPrice, riskMetrics);
     if (!proj) {
       host.innerHTML = '';
       return;
     }
-    function row(label, val) {
-      if (val == null || isNaN(val)) return '';
+    function pctCell(val) {
+      if (val == null || isNaN(val)) return '<td>—</td>';
       const cls = val >= 0 ? 'color:var(--green)' : 'color:var(--red)';
-      return '<tr><td>' + label + '</td><td style="' + cls + '">' + (val >= 0 ? '+' : '') + val.toFixed(1) + '%</td></tr>';
+      return '<td style="' + cls + '">' + (val >= 0 ? '+' : '') + val.toFixed(1) + '%</td>';
     }
-    let rows = '';
-    rows += row('Trend continuation — 1 Year', proj.trend.oneYear);
-    rows += row('Trend continuation — 5 Year (cumulative)', proj.trend.fiveYear);
-    rows += row('Fair value re-rating — 1 Year', proj.reversion.oneYear);
-    rows += row('Fair value re-rating — 5 Year (cumulative)', proj.reversion.fiveYear);
-    if (!rows) {
+    const horizons = [
+      { label: '3 Months', trend: proj.trend.threeMonth, reversion: proj.reversion.threeMonth },
+      { label: '6 Months', trend: proj.trend.sixMonth, reversion: proj.reversion.sixMonth },
+      { label: '1 Year', trend: proj.trend.oneYear, reversion: proj.reversion.oneYear },
+      { label: '5 Years (cumulative)', trend: proj.trend.fiveYear, reversion: proj.reversion.fiveYear }
+    ].filter((h) => h.trend != null || h.reversion != null);
+    if (!horizons.length && !proj.volRange.threeMonth && !proj.volRange.sixMonth) {
       host.innerHTML = '';
       return;
     }
+    const rows = horizons
+      .map((h) => '<tr><td>' + h.label + '</td>' + pctCell(h.trend) + pctCell(h.reversion) + '</tr>')
+      .join('');
+    function volRow(label, r) {
+      if (!r) return '';
+      return (
+        '<tr><td>' + label + '</td><td colspan="2">' +
+        formatINR(r.lower) + ' – ' + formatINR(r.upper) +
+        ' <span style="color:var(--text-muted)">(±' + r.pctRange.toFixed(1) + '%)</span></td></tr>'
+      );
+    }
+    const volRows = volRow('3 Months (±1σ range)', proj.volRange.threeMonth) + volRow('6 Months (±1σ range)', proj.volRange.sixMonth);
     host.innerHTML =
       '<div class="card" style="margin-top:14px;overflow-x:auto">' +
-      '<h3>Illustrative 1Y / 5Y Return Projection</h3>' +
+      '<h3>Illustrative Return Projection (3M / 6M / 1Y / 5Y)</h3>' +
       '<p style="font-size:11.5px;color:var(--text-muted);margin-bottom:10px">' +
-      'Two different models, not a forecast: "Trend continuation" extrapolates Screener\'s own historical price CAGR forward. ' +
-      '"Fair value re-rating" shows what happens if price closes the gap to the Graham Formula / Peter Lynch average fair value ' +
-      '(1Y = full re-rating, 5Y = gradual re-rating then compounding at the growth rate). Real returns depend on markets, ' +
-      'not formulas — treat both as reference points, not predictions.' +
+      'Three different models, not a forecast. "Trend continuation" extrapolates Screener\'s own historical price CAGR forward. ' +
+      '"Fair value re-rating" shows what happens if price closes part (short term) or all (1Y+) of the gap to the Graham Formula / ' +
+      'Peter Lynch average fair value. The ±1σ range below is a statistical range from the stock\'s own historical volatility, not ' +
+      'a target — real returns depend on markets, not formulas.' +
       '</p>' +
-      '<table class="data-table"><tbody>' + rows + '</tbody></table></div>';
+      '<table class="data-table"><thead><tr><th>Horizon</th><th>Trend Continuation</th><th>Fair Value Re-rating</th></tr></thead>' +
+      '<tbody>' + rows + volRows + '</tbody></table></div>';
   }
 
   // ---------- Market view ----------
@@ -801,6 +857,7 @@ const App = (() => {
     $('#m-bull').textContent = (v.bullRatio * 100).toFixed(1) + '%';
 
     if (state.df) drawPriceChart();
+    renderCandlestickPatterns(state.df);
     renderRiskMetrics(state.df, state.sheet);
     const piv = Indicators.pivots(last);
     $('#pivot-r2').textContent = formatINR(piv.r2);
@@ -1080,6 +1137,8 @@ const App = (() => {
         }
         verdictInfo.riskMetrics = Indicators.riskMetrics(state.df);
         Object.assign(verdictInfo, fibProximity(state.df));
+        verdictInfo.candlePatterns = Indicators.detectCandlestickPatterns(state.df);
+        verdictInfo.breakout = Indicators.detectBreakout(state.df, 20);
 
         state.verdict = VerdictEngine.analyse(state.df, verdictInfo);
       } else {
@@ -1122,12 +1181,13 @@ const App = (() => {
     }
   }
 
-  function setWorkspace(view) {
+  function setWorkspace(view, navKey) {
     state.view = view;
     const radio = document.querySelector('input[name="workspace"][value="' + view + '"]');
     if (radio) radio.checked = true;
     $$('.mnav-btn[data-nav]').forEach((b) => b.classList.remove('active'));
-    const navBtn = document.querySelector('.mnav-btn[data-nav="' + (view === 'market' ? 'home' : 'quality') + '"]');
+    const key = navKey || (view === 'market' ? 'home' : 'quality');
+    const navBtn = document.querySelector('.mnav-btn[data-nav="' + key + '"]');
     if (navBtn) navBtn.classList.add('active');
     if (!state.df) return;
     if (view === 'market') {
@@ -1159,6 +1219,15 @@ const App = (() => {
     if (sheet) sheet.classList.remove('open');
   }
 
+  function scrollToSection(id) {
+    const el = $(id);
+    if (!el) return;
+    const bar = $('#top-bar');
+    const offset = (bar ? bar.getBoundingClientRect().height : 0) + 12;
+    const top = el.getBoundingClientRect().top + window.pageYOffset - offset;
+    window.scrollTo({ top, behavior: 'smooth' });
+  }
+
   function init() {
     $$('input[name="workspace"]').forEach((radio) => {
       radio.addEventListener('change', (e) => setWorkspace(e.target.value));
@@ -1171,6 +1240,12 @@ const App = (() => {
         } else if (nav === 'quality') {
           setWorkspace('quant');
           setTab('quality');
+        } else if (nav === 'chart') {
+          setWorkspace('market', 'chart');
+          setTimeout(() => scrollToSection('#chart-analysis-heading'), 50);
+        } else if (nav === 'fundamentals') {
+          setWorkspace('market', 'fundamentals');
+          setTimeout(() => scrollToSection('#fundamentals-heading'), 50);
         } else if (nav === 'more') {
           openMoreSheet();
         }

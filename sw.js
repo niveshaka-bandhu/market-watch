@@ -1,4 +1,4 @@
-const CACHE_NAME = 'quant-verdict-v4';
+const CACHE_NAME = 'quant-verdict-v5';
 const ASSETS = [
   './',
   './index.html',
@@ -43,6 +43,14 @@ self.addEventListener('activate', (e) => {
 
 self.addEventListener('fetch', (e) => {
   e.respondWith(
-    caches.match(e.request).then((cached) => cached || fetch(e.request))
+    fetch(e.request)
+      .then((res) => {
+        // Keep the cache fresh with whatever we just successfully fetched,
+        // so offline fallback (below) stays reasonably up to date too.
+        const copy = res.clone();
+        caches.open(CACHE_NAME).then((cache) => cache.put(e.request, copy)).catch(() => {});
+        return res;
+      })
+      .catch(() => caches.match(e.request))
   );
 });
