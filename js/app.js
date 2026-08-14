@@ -1181,7 +1181,14 @@ const App = (() => {
     }
   }
 
-  function setWorkspace(view, navKey) {
+  function showMobileZone(zoneId) {
+    $$('.mobile-zone').forEach((z) => z.classList.remove('mobile-active'));
+    const zone = $('#' + zoneId);
+    if (zone) zone.classList.add('mobile-active');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  function setWorkspace(view, navKey, mobileZone) {
     state.view = view;
     const radio = document.querySelector('input[name="workspace"][value="' + view + '"]');
     if (radio) radio.checked = true;
@@ -1189,11 +1196,16 @@ const App = (() => {
     const key = navKey || (view === 'market' ? 'home' : 'quality');
     const navBtn = document.querySelector('.mnav-btn[data-nav="' + key + '"]');
     if (navBtn) navBtn.classList.add('active');
+
+    const backHomeBtn = $('#mobile-back-home');
+    if (backHomeBtn) backHomeBtn.style.display = view === 'quant' ? '' : 'none';
+
     if (!state.df) return;
     if (view === 'market') {
       show($('#view-market'));
       hide($('#view-quant'));
       renderMarketView();
+      showMobileZone(mobileZone || 'zone-verdict');
     } else {
       hide($('#view-market'));
       show($('#view-quant'));
@@ -1219,15 +1231,6 @@ const App = (() => {
     if (sheet) sheet.classList.remove('open');
   }
 
-  function scrollToSection(id) {
-    const el = $(id);
-    if (!el) return;
-    const bar = $('#top-bar');
-    const offset = (bar ? bar.getBoundingClientRect().height : 0) + 12;
-    const top = el.getBoundingClientRect().top + window.pageYOffset - offset;
-    window.scrollTo({ top, behavior: 'smooth' });
-  }
-
   function init() {
     $$('input[name="workspace"]').forEach((radio) => {
       radio.addEventListener('change', (e) => setWorkspace(e.target.value));
@@ -1236,21 +1239,21 @@ const App = (() => {
       btn.addEventListener('click', () => {
         const nav = btn.dataset.nav;
         if (nav === 'home') {
-          setWorkspace('market');
+          setWorkspace('market', 'home', 'zone-verdict');
         } else if (nav === 'quality') {
           setWorkspace('quant');
           setTab('quality');
         } else if (nav === 'chart') {
-          setWorkspace('market', 'chart');
-          setTimeout(() => scrollToSection('#chart-analysis-heading'), 50);
+          setWorkspace('market', 'chart', 'zone-chart');
         } else if (nav === 'fundamentals') {
-          setWorkspace('market', 'fundamentals');
-          setTimeout(() => scrollToSection('#fundamentals-heading'), 50);
+          setWorkspace('market', 'fundamentals', 'zone-fundamentals');
         } else if (nav === 'more') {
           openMoreSheet();
         }
       });
     });
+    const backHomeBtn = $('#mobile-back-home');
+    if (backHomeBtn) backHomeBtn.addEventListener('click', () => setWorkspace('market', 'home', 'zone-verdict'));
     $$('.more-item[data-tab]').forEach((btn) => {
       btn.addEventListener('click', () => {
         setWorkspace('quant');

@@ -12,8 +12,8 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-title" content="QuantVerdict" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <link rel="apple-touch-icon" href="icon-512.png" />
-  <link rel="apple-touch-startup-image" href="icon-512.png" />
+  <link rel="apple-touch-icon" href="logo.png" />
+  <link rel="apple-touch-startup-image" href="logo.png" />
   <meta name="description" content="Institutional quant analysis dashboard for Indian stocks (NSE/BSE)" />
   <title>Indian Quant Verdict Dashboard</title>
   <link rel="manifest" href="manifest.json" />
@@ -24,6 +24,12 @@
 </head>
 <body>
   <div class="container">
+    <div id="install-row" class="hidden" style="text-align:center;margin-bottom:14px">
+      <button type="button" id="install-btn" style="width:100%;background:var(--accent);color:#fff;border:none;padding:12px 24px;border-radius:12px;font-weight:600;font-size:14px;cursor:pointer">
+        📲 Install App
+      </button>
+    </div>
+
     <!-- Top Control Bar — sticky on all pages/views -->
     <div class="control-bar" id="top-bar">
       <div class="control-group" id="workspace-group">
@@ -67,6 +73,7 @@
 
       <!-- ========== MARKET VIEW ========== -->
       <div id="view-market">
+        <div id="zone-verdict" class="mobile-zone">
         <div id="verdict-box" class="verdict-box"></div>
 
         <div class="two-col">
@@ -99,7 +106,9 @@
             <div class="value" id="m-bull">—</div>
           </div>
         </div>
+        </div>
 
+        <div id="zone-chart" class="mobile-zone">
         <div class="section-title" id="chart-analysis-heading" style="margin-top:4px">📊 Chart Analysis</div>
         <div class="card" style="margin-bottom:20px">
           <div class="section-title" style="justify-content:space-between">
@@ -130,7 +139,9 @@
           </p>
           <div id="candlestick-patterns"></div>
         </div>
+        </div>
 
+        <div id="zone-fundamentals" class="mobile-zone">
         <div class="section-title" id="fundamentals-heading" style="margin-top:4px">💎 Screener Fundamental Analysis</div>
         <div class="two-col">
           <div class="card">
@@ -214,10 +225,15 @@
             </div>
           </div>
         </div>
+        <div id="sheet-dashboard"></div>
+        </div>
       </div>
 
       <!-- ========== QUANT DEEP-DIVE ========== -->
       <div id="view-quant" class="hidden">
+        <button type="button" id="mobile-back-home" class="mobile-only-block" style="display:none">
+          ← Back to Home
+        </button>
         <div class="tabs">
           <button class="tab-btn active" data-tab="quality">🧬 Quality Matrix</button>
           <button class="tab-btn" data-tab="monte">🎲 Monte Carlo</button>
@@ -302,12 +318,6 @@
       </div>
     </div>
 
-    <div id="install-row" class="hidden" style="text-align:center;margin:20px 0">
-      <button type="button" id="install-btn" style="background:var(--accent);color:#fff;border:none;padding:10px 24px;border-radius:999px;font-weight:600;font-size:14px;cursor:pointer">
-        Install App
-      </button>
-    </div>
-
     <footer>
       Indian Quant Verdict · Built for NSE/BSE · PWA-ready · Host on GitHub Pages
     </footer>
@@ -322,7 +332,7 @@
       <span class="mnav-icon">🧬</span><span>Quality</span>
     </button>
     <button type="button" class="mnav-btn mnav-home" data-nav="home">
-      <span class="mnav-home-circle"><img src="icon-512.png" alt="" /></span>
+      <span class="mnav-home-circle"><img src="logo-512.png" alt="" onerror="this.style.display='none';this.parentElement.textContent='🏠';" /></span>
       <span>Home</span>
     </button>
     <button type="button" class="mnav-btn" data-nav="fundamentals">
