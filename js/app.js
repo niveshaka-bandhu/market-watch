@@ -13,6 +13,9 @@ const App = (() => {
     fibEnabled: false,
     chartTimeframe: 'D',
     chartRange: 260,
+    intradayInterval: null,
+    intradayDf: null,
+    fullscreenChart: false,
     view: 'market',
     sheet: null
   };
@@ -30,6 +33,197 @@ const App = (() => {
   function fmt(n, d) {
     if (n == null || isNaN(n)) return '—';
     return Number(n).toLocaleString('en-IN', { maximumFractionDigits: d == null ? 2 : d });
+  }
+
+  function card(label, val) {
+    return (
+      '<div class="metric-card"><div class="label">' +
+      label +
+      '</div><div class="value" style="font-size:15px">' +
+      val +
+      '</div></div>'
+    );
+  }
+
+  // Only render a card when the value is actually present — no "—"
+  // placeholders for missing fields, the card just doesn't appear.
+  function cardIfPresent(label, val, suffix) {
+    if (val == null || val === '') return '';
+    return card(label, val + (suffix || ''));
+  }
+
+  // Wraps a title + a set of cards; if every card came back empty (none of
+  // the underlying fields were present), the whole section — title
+  // included — is omitted rather than showing an empty header.
+  function section(title, cards) {
+    const html = cards.filter(Boolean).join('');
+    if (!html) return '';
+    return (
+      '<div class="section-title" style="margin-top:16px">' + title + '</div>' +
+      '<div class="metrics-row">' + html + '</div>'
+    );
+  }
+
+  function renderCompanyInfoTop(d) {
+    const host = $('#company-info-top');
+    if (!host) return;
+    if (!d) {
+      host.innerHTML = '';
+      return;
+    }
+    const sn = d.snapshot || {};
+    host.innerHTML = section('Company Info', [
+      cardIfPresent('Market Cap', sn.marketCapCr != null ? '₹' + fmt(sn.marketCapCr, 0) + ' Cr.' : null),
+      cardIfPresent('Current Price', sn.currentPrice != null ? '₹' + fmt(sn.currentPrice) : null),
+      cardIfPresent('High / Low', sn.highLow),
+      cardIfPresent('Stock P/E', sn.stockPE != null ? fmt(sn.stockPE) : null),
+      cardIfPresent('Book Value', sn.bookValue != null ? '₹' + fmt(sn.bookValue) : null),
+      cardIfPresent('Dividend Yield', sn.dividendYield, '%'),
+      cardIfPresent('ROCE', sn.roce, '%'),
+      cardIfPresent('ROE', sn.roe, '%'),
+      cardIfPresent('Face Value', sn.faceValue != null ? '₹' + fmt(sn.faceValue) : null)
+    ]);
+  }
+
+  async function generatePdfReport() {
+    if (typeof window.jspdf === 'undefined') {
+      alert('PDF library failed to load — check your connection and try again.');
+      return null;
+    }
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ unit: 'pt', format: 'a4' });
+    const pageW = doc.internal.pageSize.getWidth();
+    const pageH = doc.internal.pageSize.getHeight();
+    const margin = 40;
+    let y = 50;
+
+    function ensureSpace(h) {
+      if (y + h > pageH - 40) {
+        doc.addPage();
+        y = 50;
+      }
+    }
+    function heading(text, size) {
+      ensureSpace(size * 1.6);
+      doc.setFontSize(size);
+      doc.setFont(undefined, 'bold');
+      doc.setTextColor(0, 0, 0);
+      doc.text(text, margin, y);
+      y += size * 1.5;
+      doc.setFont(undefined, 'normal');
+    }
+    function para(text, size) {
+      doc.setFontSize(size || 10);
+      doc.setTextColor(0, 0, 0);
+      const lines = doc.splitTextToSize(text, pageW - margin * 2);
+      lines.forEach((line) => {
+        ensureSpace(14);
+        doc.text(line, margin, y);
+        y += 14;
+      });
+    }
+    function bulletList(items, color) {
+      doc.setFontSize(10);
+      items.forEach((item) => {
+        const lines = doc.splitTextToSize('•  ' + item, pageW - margin * 2 - 6);
+        lines.forEach((line, i) => {
+          ensureSpace(14);
+          doc.setTextColor(color[0], color[1], color[2]);
+          doc.text(line, margin + (i === 0 ? 0 : 12), y);
+          y += 14;
+        });
+      });
+      doc.setTextColor(0, 0, 0);
+    }
+
+    const ticker = state.rawInput || state.ticker || 'Stock';
+    heading(ticker + ' — Analysis Report', 18);
+    doc.setFontSize(9);
+    doc.setTextColor(120, 120, 120);
+    doc.text('Generated ' + new Date().toLocaleString('en-IN') + '  ·  Quant Verdict', margin, y);
+    doc.setTextColor(0, 0, 0);
+    y += 22;
+
+    // Company Info
+    const sn2 = (state.sheet && state.sheet.snapshot) || {};
+    const infoLines = [];
+    if (sn2.marketCapCr != null) infoLines.push('Market Cap: Rs.' + fmt(sn2.marketCapCr, 0) + ' Cr.');
+    if (sn2.currentPrice != null) infoLines.push('Price: Rs.' + fmt(sn2.currentPrice));
+    if (sn2.stockPE != null) infoLines.push('P/E: ' + fmt(sn2.stockPE));
+    if (sn2.bookValue != null) infoLines.push('Book Value: Rs.' + fmt(sn2.bookValue));
+    if (sn2.roe != null) infoLines.push('ROE: ' + sn2.roe + '%');
+    if (sn2.roce != null) infoLines.push('ROCE: ' + sn2.roce + '%');
+    if (sn2.dividendYield != null) infoLines.push('Div Yield: ' + sn2.dividendYield + '%');
+    if (infoLines.length) {
+      heading('Company Info', 13);
+      para(infoLines.join('    |    '));
+      y += 8;
+    }
+
+    // Verdict
+    if (state.verdict) {
+      heading('Verdict: ' + state.verdict.master, 13);
+      para(state.verdict.summary);
+      y += 6;
+      if (state.verdict.bull.length) {
+        heading('Positive Drivers', 11);
+        bulletList(state.verdict.bull, [22, 140, 60]);
+        y += 6;
+      }
+      if (state.verdict.bear.length) {
+        heading('Risk Warnings', 11);
+        bulletList(state.verdict.bear, [200, 40, 40]);
+        y += 6;
+      }
+    }
+
+    // Chart image (best-effort — skipped silently if Plotly can't export)
+    if (typeof Plotly !== 'undefined' && $('#price-chart')) {
+      try {
+        const imgData = await Plotly.toImage('price-chart', { format: 'png', width: 700, height: 350 });
+        const w = pageW - margin * 2;
+        const h = (w * 350) / 700;
+        ensureSpace(h + 30);
+        heading('Price Chart', 13);
+        doc.addImage(imgData, 'PNG', margin, y, w, h);
+        y += h + 16;
+      } catch (e) {
+        console.warn('Chart export skipped', e);
+      }
+    }
+
+    // Growth summary
+    if (state.sheet) {
+      const g = state.sheet.salesGrowth || {};
+      const pg = state.sheet.profitGrowth || {};
+      const growthLines = [];
+      if (g.ttm != null) growthLines.push('Sales growth (TTM): ' + g.ttm + '%');
+      if (pg.ttm != null) growthLines.push('Profit growth (TTM): ' + pg.ttm + '%');
+      if (g.y5 != null) growthLines.push('Sales growth (5Y): ' + g.y5 + '%');
+      if (pg.y5 != null) growthLines.push('Profit growth (5Y): ' + pg.y5 + '%');
+      if (growthLines.length) {
+        heading('Growth', 13);
+        para(growthLines.join('    |    '));
+        y += 8;
+      }
+    }
+
+    // Disclaimer
+    ensureSpace(50);
+    y += 6;
+    doc.setDrawColor(200, 200, 200);
+    doc.line(margin, y, pageW - margin, y);
+    y += 16;
+    doc.setFontSize(8);
+    doc.setTextColor(140, 140, 140);
+    para(
+      'This report is generated automatically from Screener.in and Yahoo Finance data using formula-based ' +
+        'models (Graham, Peter Lynch, DuPont, Piotroski, technical indicators). It is not investment advice. ' +
+        'Verify all figures independently before making any investment decision.',
+      8
+    );
+
+    return doc;
   }
 
   // ---------- Sheets JSONP ----------
@@ -311,35 +505,6 @@ const App = (() => {
     const pc = d.priceCagr || {};
     const t = d.tables || {};
 
-    function card(label, val) {
-      return (
-        '<div class="metric-card"><div class="label">' +
-        label +
-        '</div><div class="value" style="font-size:15px">' +
-        val +
-        '</div></div>'
-      );
-    }
-
-    // Only render a card when the value is actually present — per request,
-    // no "—" placeholders for missing fields, the card just doesn't appear.
-    function cardIfPresent(label, val, suffix) {
-      if (val == null || val === '') return '';
-      return card(label, val + (suffix || ''));
-    }
-
-    // Wraps a title + a set of cards; if every card came back empty (none of
-    // the underlying fields were present), the whole section — title
-    // included — is omitted rather than showing an empty header.
-    function section(title, cards) {
-      const html = cards.filter(Boolean).join('');
-      if (!html) return '';
-      return (
-        '<div class="section-title" style="margin-top:16px">' + title + '</div>' +
-        '<div class="metrics-row">' + html + '</div>'
-      );
-    }
-
     function growthTable(g, pg, pc, roe) {
       // Rows line up with the sheet's own period labels: Sales/Profit use
       // "TTM" for the most recent period, Price CAGR uses "1 Year", ROE
@@ -444,17 +609,6 @@ const App = (() => {
       '<div><strong style="color:var(--red)">Cons</strong><ul class="bear-list">' +
       (d.cons || []).map((c) => '<li>' + c + '</li>').join('') +
       '</ul></div></div>' +
-      section('Company Info', [
-        cardIfPresent('Market Cap', sn.marketCapCr != null ? '₹' + fmt(sn.marketCapCr, 0) + ' Cr.' : null),
-        cardIfPresent('Current Price', sn.currentPrice != null ? '₹' + fmt(sn.currentPrice) : null),
-        cardIfPresent('High / Low', sn.highLow),
-        cardIfPresent('Stock P/E', sn.stockPE != null ? fmt(sn.stockPE) : null),
-        cardIfPresent('Book Value', sn.bookValue != null ? '₹' + fmt(sn.bookValue) : null),
-        cardIfPresent('Dividend Yield', sn.dividendYield, '%'),
-        cardIfPresent('ROCE', sn.roce, '%'),
-        cardIfPresent('ROE', sn.roe, '%'),
-        cardIfPresent('Face Value', sn.faceValue != null ? '₹' + fmt(sn.faceValue) : null)
-      ]) +
       section('Key metrics', [
         cardIfPresent('TTM EPS (₹)', d.trailingEps != null ? fmt(d.trailingEps) : null),
         cardIfPresent('Book Value (₹)', d.bookValue != null ? fmt(d.bookValue) : null),
@@ -688,13 +842,93 @@ const App = (() => {
   }
 
   function drawPriceChart() {
-    if (!state.df || typeof Charts === 'undefined') return;
+    if (typeof Charts === 'undefined') return;
+    const target = state.fullscreenChart ? '#price-chart-fullscreen' : '#price-chart';
+    if (state.intradayInterval && state.intradayDf) {
+      Charts.priceChart(state.intradayDf, state.showBollinger, null, 0, target);
+      return;
+    }
+    if (!state.df) return;
     const data = Indicators.aggregateOHLC(state.df, state.chartTimeframe);
     const fib = state.fibEnabled ? Indicators.fibonacciLevels(data, 130) : null;
     let daysToShow = state.chartRange;
     if (daysToShow && state.chartTimeframe === 'W') daysToShow = Math.ceil(daysToShow / 5);
     else if (daysToShow && state.chartTimeframe === 'M') daysToShow = Math.ceil(daysToShow / 21);
-    Charts.priceChart(data, state.showBollinger, fib, daysToShow);
+    Charts.priceChart(data, state.showBollinger, fib, daysToShow, target);
+  }
+
+  async function loadIntradayChart(interval) {
+    const host = $('#price-chart');
+    if (host) host.innerHTML = '<p style="color:var(--text-muted);font-size:13px;padding:20px">Loading intraday data…</p>';
+    try {
+      const result = await DataService.fetchIntraday(state.ticker, interval);
+      state.intradayInterval = interval;
+      state.intradayDf = Indicators.calculateAll(result.history);
+      drawPriceChart();
+    } catch (e) {
+      console.warn('Intraday fetch failed', e);
+      if (host)
+        host.innerHTML =
+          '<p style="color:var(--text-muted);font-size:13px;padding:20px">Intraday data unavailable for this interval right now — try Day/Week/Month instead.</p>';
+    }
+  }
+
+  function openChartFullscreen() {
+    const overlay = $('#chart-fullscreen');
+    if (!overlay) return;
+    overlay.classList.add('open');
+    overlay.classList.remove('hidden');
+    state.fullscreenChart = true;
+
+    // Best-effort fullscreen + landscape lock. Neither is universally
+    // supported (iOS Safari in particular has no Orientation Lock API at
+    // all, and some browsers only allow orientation lock while the fullscreen
+    // API is also active) — every step here is wrapped so a missing API
+    // just silently skips rather than breaking the overlay itself.
+    const el = overlay;
+    const requestFs =
+      el.requestFullscreen || el.webkitRequestFullscreen || el.msRequestFullscreen;
+    if (requestFs) {
+      try {
+        requestFs.call(el).catch(() => {});
+      } catch (e) {
+        /* ignore */
+      }
+    }
+    if (screen.orientation && screen.orientation.lock) {
+      screen.orientation.lock('landscape').catch(() => {});
+    }
+
+    drawPriceChart();
+    // Plotly needs a resize nudge once the fullscreen layout has actually
+    // settled — immediate draw can measure the pre-fullscreen container size.
+    setTimeout(() => drawPriceChart(), 200);
+  }
+
+  function closeChartFullscreen() {
+    const overlay = $('#chart-fullscreen');
+    if (!overlay) return;
+    overlay.classList.remove('open');
+    overlay.classList.add('hidden');
+    state.fullscreenChart = false;
+
+    if (screen.orientation && screen.orientation.unlock) {
+      try {
+        screen.orientation.unlock();
+      } catch (e) {
+        /* ignore */
+      }
+    }
+    const exitFs =
+      document.exitFullscreen || document.webkitExitFullscreen || document.msExitFullscreen;
+    if (document.fullscreenElement && exitFs) {
+      try {
+        exitFs.call(document).catch(() => {});
+      } catch (e) {
+        /* ignore */
+      }
+    }
+    drawPriceChart();
   }
 
   function renderCandlestickPatterns(df) {
@@ -814,6 +1048,7 @@ const App = (() => {
 
   // ---------- Market view ----------
   function renderMarketView() {
+    renderCompanyInfoTop(state.sheet);
     const v = state.verdict;
     // Screener-only path (no Yahoo chart)
     if (!v || !v.latest) {
@@ -1117,25 +1352,6 @@ const App = (() => {
   }
 
   // ---------- Load ----------
-  let tvScriptLoaded = false;
-  let tvScriptLoading = null;
-
-  function loadTvScript() {
-    if (tvScriptLoaded) return Promise.resolve();
-    if (tvScriptLoading) return tvScriptLoading;
-    tvScriptLoading = new Promise((resolve, reject) => {
-      const s = document.createElement('script');
-      s.src = 'https://s3.tradingview.com/tv.js';
-      s.onload = () => {
-        tvScriptLoaded = true;
-        resolve();
-      };
-      s.onerror = reject;
-      document.head.appendChild(s);
-    });
-    return tvScriptLoading;
-  }
-
   function tvSymbolFor(ticker) {
     if (!ticker) return null;
     // state.ticker is like "RELIANCE.NS" or an index like "^NSEI" — strip
@@ -1144,33 +1360,13 @@ const App = (() => {
     return 'NSE:' + base;
   }
 
-  function renderTvChart() {
-    const host = $('#tv-chart-widget');
-    if (!host) return;
+  function updateTvLink() {
+    const link = $('#tv-link');
+    if (!link) return;
     const symbol = tvSymbolFor(state.ticker);
-    if (!symbol) return;
-    loadTvScript()
-      .then(() => {
-        host.innerHTML = '';
-        if (typeof TradingView === 'undefined') return;
-        // eslint-disable-next-line no-undef
-        new TradingView.widget({
-          container_id: 'tv-chart-widget',
-          symbol: symbol,
-          interval: 'D',
-          timezone: 'Asia/Kolkata',
-          theme: window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light',
-          style: '1',
-          locale: 'in',
-          autosize: true,
-          hide_top_toolbar: false,
-          allow_symbol_change: false,
-          studies: ['MASimple@tv-basicstudies']
-        });
-      })
-      .catch(() => {
-        host.innerHTML = '<p style="color:var(--text-muted);font-size:13px">TradingView widget failed to load — check your connection.</p>';
-      });
+    link.href = symbol
+      ? 'https://in.tradingview.com/chart/?symbol=' + encodeURIComponent(symbol)
+      : 'https://in.tradingview.com/';
   }
 
   async function loadTicker() {
@@ -1185,8 +1381,10 @@ const App = (() => {
     state.ticker = DataService.normalizeTicker(raw);
     state.showBollinger = $('#show-bb') ? $('#show-bb').checked : true;
     state.chartTimeframe = 'D';
-    const dayRadio = document.querySelector('input[name="chart-tf"][value="D"]');
-    if (dayRadio) dayRadio.checked = true;
+    state.intradayInterval = null;
+    state.intradayDf = null;
+    const intervalSel = $('#chart-interval');
+    if (intervalSel) intervalSel.value = 'D';
     state.sheet = null;
     // Clear valuation calculator inputs so a stale value from the previous
     // ticker (or a failed first-load fallback) can never block this
@@ -1256,6 +1454,8 @@ const App = (() => {
 
       hide($('#loading'));
       show($('#main-content'));
+      const reportActions = $('#report-actions');
+      if (reportActions) reportActions.style.display = 'flex';
       $('#asset-title').textContent = 'Strategic Asset Intelligence Center (' + state.rawInput + ')';
 
       if (state.view === 'market') {
@@ -1264,8 +1464,7 @@ const App = (() => {
         setWorkspace('quant');
       }
 
-      const tvRadio = document.querySelector('input[name="chart-source"][value="tv"]');
-      if (tvRadio && tvRadio.checked) renderTvChart();
+      updateTvLink();
 
       // Soft warning if chart missing but Screener OK
       if (!state.df && state.sheet) {
@@ -1357,6 +1556,68 @@ const App = (() => {
     });
     const backHomeBtn = $('#mobile-back-home');
     if (backHomeBtn) backHomeBtn.addEventListener('click', () => setWorkspace('market', 'home', 'zone-verdict'));
+    const expandBtn = $('#chart-expand-btn');
+    if (expandBtn) expandBtn.addEventListener('click', openChartFullscreen);
+    const fsCloseBtn = $('#chart-fullscreen-close');
+    if (fsCloseBtn) fsCloseBtn.addEventListener('click', closeChartFullscreen);
+    const pdfBtn = $('#pdf-report-btn');
+    if (pdfBtn)
+      pdfBtn.addEventListener('click', async () => {
+        const orig = pdfBtn.textContent;
+        pdfBtn.disabled = true;
+        pdfBtn.textContent = 'Generating…';
+        try {
+          const doc = await generatePdfReport();
+          if (doc) doc.save((state.rawInput || 'report') + '-quant-verdict.pdf');
+        } catch (e) {
+          console.error(e);
+          alert('Could not generate the PDF report.');
+        } finally {
+          pdfBtn.disabled = false;
+          pdfBtn.textContent = orig;
+        }
+      });
+    const shareBtn = $('#share-report-btn');
+    if (shareBtn)
+      shareBtn.addEventListener('click', async () => {
+        const orig = shareBtn.textContent;
+        shareBtn.disabled = true;
+        shareBtn.textContent = 'Preparing…';
+        try {
+          const doc = await generatePdfReport();
+          if (!doc) return;
+          const filename = (state.rawInput || 'report') + '-quant-verdict.pdf';
+          const blob = doc.output('blob');
+          const file = new File([blob], filename, { type: 'application/pdf' });
+          if (navigator.canShare && navigator.canShare({ files: [file] })) {
+            await navigator.share({
+              files: [file],
+              title: (state.rawInput || 'Stock') + ' Analysis Report',
+              text: 'Quant Verdict analysis for ' + (state.rawInput || '')
+            });
+          } else if (navigator.share) {
+            // Some browsers support share() for text/url but not files — still
+            // give them the actual PDF via download since it can't be attached.
+            doc.save(filename);
+            await navigator.share({
+              title: (state.rawInput || 'Stock') + ' Analysis Report',
+              text: 'Quant Verdict analysis for ' + (state.rawInput || ''),
+              url: location.href
+            });
+          } else {
+            doc.save(filename);
+            alert("Sharing isn't supported in this browser — downloaded the PDF instead.");
+          }
+        } catch (e) {
+          if (e && e.name !== 'AbortError') {
+            console.error(e);
+            alert('Could not share the report.');
+          }
+        } finally {
+          shareBtn.disabled = false;
+          shareBtn.textContent = orig;
+        }
+      });
     $$('.more-item[data-tab]').forEach((btn) => {
       btn.addEventListener('click', () => {
         setWorkspace('quant');
@@ -1378,26 +1639,27 @@ const App = (() => {
         state.fibEnabled = fib.checked;
         if (state.view === 'market') drawPriceChart();
       });
-    $$('input[name="chart-tf"]').forEach((radio) => {
-      radio.addEventListener('change', (e) => {
-        state.chartTimeframe = e.target.value;
-        if (state.view === 'market') drawPriceChart();
+    const intervalSel = $('#chart-interval');
+    if (intervalSel) {
+      intervalSel.addEventListener('change', (e) => {
+        const val = e.target.value;
+        const note = $('#chart-mode-note');
+        if (val === 'D' || val === 'W' || val === 'M') {
+          state.chartTimeframe = val;
+          state.intradayInterval = null;
+          state.intradayDf = null;
+          if (note) note.textContent = 'This chart drives the automated verdict below — indicators here feed the bull/bear scoring.';
+          if (state.view === 'market') drawPriceChart();
+        } else {
+          if (note) note.textContent = 'Intraday view — for your own reading only, it does not feed the verdict below (which is based on daily history).';
+          if (state.view === 'market') loadIntradayChart(val);
+        }
       });
-    });
+    }
     $$('input[name="chart-range"]').forEach((radio) => {
       radio.addEventListener('change', (e) => {
         state.chartRange = parseInt(e.target.value, 10) || 0;
         if (state.view === 'market') drawPriceChart();
-      });
-    });
-    $$('input[name="chart-source"]').forEach((radio) => {
-      radio.addEventListener('change', (e) => {
-        const isTv = e.target.value === 'tv';
-        const ownPanel = $('#own-chart-panel');
-        const tvPanel = $('#tv-chart-panel');
-        if (ownPanel) ownPanel.style.display = isTv ? 'none' : '';
-        if (tvPanel) tvPanel.style.display = isTv ? '' : 'none';
-        if (isTv) renderTvChart();
       });
     });
     // Shorter default range on mobile — a full year of daily candles

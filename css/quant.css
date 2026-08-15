@@ -505,15 +505,44 @@ td {
   height: 420px;
   max-width: 100%;
   overflow: hidden;
-  touch-action: manipulation; /* stops the browser's native double-tap-zoom
-    from firing on chart taps — that page-level zoom, not Plotly, was what
-    made the chart appear to "zoom out" until manually reset */
+  touch-action: pan-y; /* blocks pinch-zoom on the chart entirely — the
+    previous 'manipulation' value still allowed pinch-zoom, just not
+    double-tap-zoom, which was the actual complaint. pan-y keeps normal
+    vertical page scrolling working through the chart area. */
 }
 
 @media (max-width: 768px) {
   #price-chart, #mc-chart, #bt-chart {
     height: 320px;
   }
+}
+
+.chart-fullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: 900;
+  background: var(--surface);
+  display: flex;
+  flex-direction: column;
+}
+.chart-fullscreen.open { display: flex; }
+.chart-fullscreen.hidden { display: none; }
+#chart-fullscreen-close {
+  align-self: flex-end;
+  margin: 10px 14px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 8px;
+  padding: 8px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+#price-chart-fullscreen {
+  flex: 1;
+  width: 100%;
+  touch-action: pan-y;
 }
 
 .section-title {

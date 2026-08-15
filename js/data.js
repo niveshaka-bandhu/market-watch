@@ -30,8 +30,9 @@ const DataService = (() => {
     return JSON.parse(text);
   }
 
-  function chartUrls(ticker) {
-    const path = '/v8/finance/chart/' + encodeURIComponent(ticker) + '?interval=1d&range=5y';
+  function chartUrls(ticker, interval, range) {
+    const path =
+      '/v8/finance/chart/' + encodeURIComponent(ticker) + '?interval=' + interval + '&range=' + range;
     const direct = [
       'https://query1.finance.yahoo.com' + path,
       'https://query2.finance.yahoo.com' + path
@@ -44,7 +45,7 @@ const DataService = (() => {
     return direct.concat(proxies);
   }
 
-  function parseChart(json) {
+  function parseChart(json, keepTime) {
     const result = json && json.chart && json.chart.result && json.chart.result[0];
     if (!result || !result.timestamp) throw new Error('Empty chart');
     const meta = result.meta || {};
@@ -54,8 +55,9 @@ const DataService = (() => {
     const rows = [];
     for (let i = 0; i < ts.length; i++) {
       if (q.close[i] == null || isNaN(q.close[i])) continue;
+      const iso = new Date(ts[i] * 1000).toISOString();
       rows.push({
-        date: new Date(ts[i] * 1000).toISOString().slice(0, 10),
+        date: keepTime ? iso.slice(0, 16) : iso.slice(0, 10),
         open: Number(q.open[i]) || Number(q.close[i]),
         high: Number(q.high[i]) || Number(q.close[i]),
         low: Number(q.low[i]) || Number(q.close[i]),
@@ -68,14 +70,28 @@ const DataService = (() => {
   }
 
   async function fetchYahooChart(ticker) {
-    const urls = chartUrls(ticker);
+    const urls = chartUrls(ticker, '1d', '5y');
     // Race every direct/proxy URL in parallel instead of trying them one at a
     // time. Sequentially, N failing sources each waiting out a 7s timeout
     // means up to N*7s before giving up. In parallel, worst case is ~7s
     // regardless of how many fallbacks we have, and we return as soon as the
     // first one succeeds.
     const attempts = urls.map((url) =>
-      fetchJson(url, 8000).then((json) => parseChart(json))
+      fetchJson(url, 8000).then((json) => parseChart(json, false))
+    );
+    return firstSuccess(attempts);
+  }
+
+  // Yahoo enforces practical range limits per intraday interval — these are
+  // conservative values that reliably work rather than Yahoo's documented
+  // maximums (which sometimes 422 in practice).
+  const INTRADAY_RANGE = { '5m': '5d', '15m': '5d', '30m': '1mo', '60m': '3mo' };
+
+  async function fetchIntraday(ticker, interval) {
+    const range = INTRADAY_RANGE[interval] || '5d';
+    const urls = chartUrls(ticker, interval, range);
+    const attempts = urls.map((url) =>
+      fetchJson(url, 8000).then((json) => parseChart(json, true))
     );
     return firstSuccess(attempts);
   }
@@ -131,5 +147,5 @@ const DataService = (() => {
     }
   }
 
-  return { normalizeTicker, loadAll };
+  return { normalizeTicker, loadAll, fetchIntraday };
 })();

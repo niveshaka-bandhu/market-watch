@@ -22,6 +22,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="css/quant.css" />
   <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 </head>
 <body>
   <div class="container">
@@ -75,6 +76,15 @@
       <!-- ========== MARKET VIEW ========== -->
       <div id="view-market">
         <div id="zone-verdict" class="mobile-zone">
+        <div id="company-info-top" style="margin-bottom:16px"></div>
+        <div id="report-actions" style="display:none;gap:10px;margin-bottom:16px;flex-wrap:wrap">
+          <button type="button" id="pdf-report-btn" style="background:var(--accent);color:#fff;border:none;padding:9px 18px;border-radius:8px;font-weight:600;font-size:13px;cursor:pointer">
+            📄 Generate PDF Report
+          </button>
+          <button type="button" id="share-report-btn" style="background:var(--surface-2);color:var(--text);border:1px solid var(--border);padding:9px 18px;border-radius:8px;font-weight:600;font-size:13px;cursor:pointer">
+            🔗 Share
+          </button>
+        </div>
         <div id="verdict-box" class="verdict-box"></div>
 
         <div class="two-col">
@@ -114,19 +124,24 @@
         <div class="card" style="margin-bottom:20px">
           <div class="section-title" style="justify-content:space-between">
             <span>📊 Price Action Engine</span>
-            <div class="radio-group" id="chart-source">
-              <label><input type="radio" name="chart-source" value="own" checked /><span>Our Analysis</span></label>
-              <label><input type="radio" name="chart-source" value="tv" /><span>TradingView</span></label>
+            <div style="display:flex;gap:8px;align-items:center">
+              <a id="tv-link" href="#" target="_blank" rel="noopener" class="analyse-btn" style="text-decoration:none;display:inline-block;padding:6px 14px;font-size:12px">
+                Open in TradingView ↗
+              </a>
+              <button type="button" id="chart-expand-btn" title="Expand chart" style="background:var(--surface-2);border:1px solid var(--border);border-radius:8px;padding:6px 10px;cursor:pointer;font-size:14px">⛶</button>
             </div>
           </div>
 
-          <div id="own-chart-panel">
-          <div style="display:flex;justify-content:flex-end;margin-bottom:6px">
-            <div class="radio-group" id="chart-tf">
-              <label><input type="radio" name="chart-tf" value="D" checked /><span>Day</span></label>
-              <label><input type="radio" name="chart-tf" value="W" /><span>Week</span></label>
-              <label><input type="radio" name="chart-tf" value="M" /><span>Month</span></label>
-            </div>
+          <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:6px">
+            <select id="chart-interval" style="background:var(--surface-2);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:6px 10px;font-size:13px">
+              <option value="5m">5 minutes</option>
+              <option value="15m">15 minutes</option>
+              <option value="30m">30 minutes</option>
+              <option value="60m">1 hour</option>
+              <option value="D" selected>Day</option>
+              <option value="W">Week</option>
+              <option value="M">Month</option>
+            </select>
           </div>
           <div style="margin-bottom:10px">
             <div class="radio-group" id="chart-range">
@@ -134,7 +149,7 @@
               <label><input type="radio" name="chart-range" value="126" /><span>6M</span></label>
               <label><input type="radio" name="chart-range" value="260" checked /><span>1Y</span></label>
               <label><input type="radio" name="chart-range" value="520" /><span>2Y</span></label>
-              <label><input type="radio" name="chart-range" value="0" /><span>All</span></label>
+              <label><input type="radio" name="chart-range" value="0" /><span>5Y</span></label>
             </div>
           </div>
           <div style="display:flex;gap:18px;flex-wrap:wrap;margin-bottom:10px">
@@ -148,18 +163,9 @@
             </label>
           </div>
           <div id="price-chart"></div>
-          <p style="font-size:11px;color:var(--text-muted);margin-top:8px">
+          <p id="chart-mode-note" style="font-size:11px;color:var(--text-muted);margin-top:8px">
             This chart drives the automated verdict below — indicators here feed the bull/bear scoring.
           </p>
-          </div>
-
-          <div id="tv-chart-panel" style="display:none">
-            <div id="tv-chart-widget" style="height:500px"></div>
-            <p style="font-size:11px;color:var(--text-muted);margin-top:8px">
-              Full TradingView charting — 100+ indicators, drawing tools, multiple chart types (Heikin-Ashi, Renko, etc.),
-              proper pinch/pan gestures. This view is for your own manual reading — it doesn't feed the verdict above.
-            </p>
-          </div>
         </div>
 
         <div class="card" style="margin-bottom:20px">
@@ -169,39 +175,38 @@
           </p>
           <div id="candlestick-patterns"></div>
         </div>
+
+        <div class="card" style="margin-bottom:20px">
+          <h3>📐 Intraday Pivot Target Framework</h3>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;font-size:13px">
+            <div>
+              <div style="color:var(--text-muted);margin-bottom:4px">Resistance 2</div>
+              <div id="pivot-r2" style="font-weight:600">—</div>
+              <div style="color:var(--text-muted);margin:10px 0 4px">Resistance 1</div>
+              <div id="pivot-r1" style="font-weight:600">—</div>
+            </div>
+            <div>
+              <div style="color:var(--text-muted);margin-bottom:4px">Support 1</div>
+              <div id="pivot-s1" style="font-weight:600">—</div>
+              <div style="color:var(--text-muted);margin:10px 0 4px">Support 2</div>
+              <div id="pivot-s2" style="font-weight:600">—</div>
+            </div>
+          </div>
+          <div style="margin-top:16px;display:flex;gap:24px">
+            <div>
+              <div style="font-size:11px;color:var(--text-muted)">Central Pivot</div>
+              <div id="pivot-central" style="font-size:18px;font-weight:700;color:var(--accent)">—</div>
+            </div>
+            <div>
+              <div style="font-size:11px;color:var(--text-muted)">14-Day ATR</div>
+              <div id="pivot-atr" style="font-size:18px;font-weight:700">—</div>
+            </div>
+          </div>
+        </div>
         </div>
 
         <div id="zone-fundamentals" class="mobile-zone">
         <div class="section-title" id="fundamentals-heading" style="margin-top:4px">💎 Screener Fundamental Analysis</div>
-        <div class="two-col">
-          <div class="card">
-            <h3>📐 Intraday Pivot Target Framework</h3>
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;font-size:13px">
-              <div>
-                <div style="color:var(--text-muted);margin-bottom:4px">Resistance 2</div>
-                <div id="pivot-r2" style="font-weight:600">—</div>
-                <div style="color:var(--text-muted);margin:10px 0 4px">Resistance 1</div>
-                <div id="pivot-r1" style="font-weight:600">—</div>
-              </div>
-              <div>
-                <div style="color:var(--text-muted);margin-bottom:4px">Support 1</div>
-                <div id="pivot-s1" style="font-weight:600">—</div>
-                <div style="color:var(--text-muted);margin:10px 0 4px">Support 2</div>
-                <div id="pivot-s2" style="font-weight:600">—</div>
-              </div>
-            </div>
-            <div style="margin-top:16px;display:flex;gap:24px">
-              <div>
-                <div style="font-size:11px;color:var(--text-muted)">Central Pivot</div>
-                <div id="pivot-central" style="font-size:18px;font-weight:700;color:var(--accent)">—</div>
-              </div>
-              <div>
-                <div style="font-size:11px;color:var(--text-muted)">14-Day ATR</div>
-                <div id="pivot-atr" style="font-size:18px;font-weight:700">—</div>
-              </div>
-            </div>
-          </div>
-
           <div class="card">
             <h3>💎 Intrinsic Valuation Models</h3>
             <p id="fundamentals-note" style="font-size:12px;margin-bottom:12px;color:var(--text-muted)"></p>
@@ -254,7 +259,6 @@
               <div id="pl-result" class="result-box">—</div>
             </div>
           </div>
-        </div>
         <div id="sheet-dashboard"></div>
         </div>
       </div>
@@ -359,6 +363,11 @@
     <footer>
       Indian Quant Verdict · Built for NSE/BSE · PWA-ready · Host on GitHub Pages
     </footer>
+  </div>
+
+  <div id="chart-fullscreen" class="chart-fullscreen hidden">
+    <button type="button" id="chart-fullscreen-close">✕ Close</button>
+    <div id="price-chart-fullscreen"></div>
   </div>
 
   <!-- Mobile-only bottom nav — hidden on desktop via CSS -->

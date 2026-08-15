@@ -38,7 +38,7 @@ const Charts = (() => {
     hovermode: 'x unified'
   };
 
-  function priceChart(df, showBollinger = true, fibLevels = null, daysToShow = 260) {
+  function priceChart(df, showBollinger = true, fibLevels = null, daysToShow = 260, targetId = 'price-chart') {
     if (typeof Plotly === 'undefined') return;
     if (!df || df.length < 5) return;
     const data = daysToShow ? df.slice(-daysToShow) : df;
@@ -150,7 +150,7 @@ const Charts = (() => {
       }
     };
 
-    Plotly.newPlot('price-chart', traces, layout, { responsive: true, displayModeBar: false });
+    Plotly.newPlot(targetId.replace(/^#/, ''), traces, layout, { responsive: true, displayModeBar: false });
   }
 
   function monteCarloChart(simMatrix) {
