@@ -8,7 +8,7 @@
   --border: #d7def0;
   --text: #1b1f3b;
   --text-muted: #6b7280;
-  --accent: #3a2e7d;    /* NSE "Minsk" navy */
+  --accent: #3a2d7f;    /* matches Niveshaka Bandhu's theme color */
   --accent-2: #e66f25;  /* NSE "Zest" orange */
   --green: #16a34a;
   --red: #e91f2b;       /* NSE brand red */
@@ -27,8 +27,8 @@
     --border: #2a3441;
     --text: #e8edf2;
     --text-muted: #8b9aab;
-    --accent: #3b82f6;
-    --accent-2: #3b82f6;
+    --accent: #6d5bd0;
+    --accent-2: #6d5bd0;
     --green: #22c55e;
     --red: #ef4444;
     --yellow: #eab308;
@@ -503,6 +503,17 @@ td {
 #price-chart, #mc-chart, #bt-chart {
   width: 100%;
   height: 420px;
+  max-width: 100%;
+  overflow: hidden;
+  touch-action: manipulation; /* stops the browser's native double-tap-zoom
+    from firing on chart taps — that page-level zoom, not Plotly, was what
+    made the chart appear to "zoom out" until manually reset */
+}
+
+@media (max-width: 768px) {
+  #price-chart, #mc-chart, #bt-chart {
+    height: 320px;
+  }
 }
 
 .section-title {
@@ -717,18 +728,18 @@ table.data-table thead th {
     top: -18px;
   }
   .mnav-home-circle {
-    width: 52px;
-    height: 52px;
+    width: 56px;
+    height: 56px;
     border-radius: 999px;
-    background: var(--accent);
+    background: #ffffff;
     display: flex;
     align-items: center;
     justify-content: center;
-    box-shadow: 0 6px 16px rgba(0,0,0,0.25);
+    box-shadow: 0 6px 16px rgba(0,0,0,0.3);
     overflow: hidden;
-    border: 3px solid var(--surface);
+    border: 3px solid var(--accent);
   }
-  .mnav-home-circle img { width: 78%; height: 78%; object-fit: contain; }
+  .mnav-home-circle img { width: 70%; height: 70%; object-fit: contain; }
 
   /* More bottom sheet */
   .more-sheet.open { display: block; }

@@ -114,10 +114,27 @@
         <div class="card" style="margin-bottom:20px">
           <div class="section-title" style="justify-content:space-between">
             <span>📊 Price Action Engine</span>
+            <div class="radio-group" id="chart-source">
+              <label><input type="radio" name="chart-source" value="own" checked /><span>Our Analysis</span></label>
+              <label><input type="radio" name="chart-source" value="tv" /><span>TradingView</span></label>
+            </div>
+          </div>
+
+          <div id="own-chart-panel">
+          <div style="display:flex;justify-content:flex-end;margin-bottom:6px">
             <div class="radio-group" id="chart-tf">
               <label><input type="radio" name="chart-tf" value="D" checked /><span>Day</span></label>
               <label><input type="radio" name="chart-tf" value="W" /><span>Week</span></label>
               <label><input type="radio" name="chart-tf" value="M" /><span>Month</span></label>
+            </div>
+          </div>
+          <div style="margin-bottom:10px">
+            <div class="radio-group" id="chart-range">
+              <label><input type="radio" name="chart-range" value="63" /><span>3M</span></label>
+              <label><input type="radio" name="chart-range" value="126" /><span>6M</span></label>
+              <label><input type="radio" name="chart-range" value="260" checked /><span>1Y</span></label>
+              <label><input type="radio" name="chart-range" value="520" /><span>2Y</span></label>
+              <label><input type="radio" name="chart-range" value="0" /><span>All</span></label>
             </div>
           </div>
           <div style="display:flex;gap:18px;flex-wrap:wrap;margin-bottom:10px">
@@ -131,6 +148,18 @@
             </label>
           </div>
           <div id="price-chart"></div>
+          <p style="font-size:11px;color:var(--text-muted);margin-top:8px">
+            This chart drives the automated verdict below — indicators here feed the bull/bear scoring.
+          </p>
+          </div>
+
+          <div id="tv-chart-panel" style="display:none">
+            <div id="tv-chart-widget" style="height:500px"></div>
+            <p style="font-size:11px;color:var(--text-muted);margin-top:8px">
+              Full TradingView charting — 100+ indicators, drawing tools, multiple chart types (Heikin-Ashi, Renko, etc.),
+              proper pinch/pan gestures. This view is for your own manual reading — it doesn't feed the verdict above.
+            </p>
+          </div>
         </div>
 
         <div class="card" style="margin-bottom:20px">
@@ -237,7 +266,7 @@
         </button>
         <div class="tabs">
           <button class="tab-btn active" data-tab="quality">🧬 Quality Matrix</button>
-          <button class="tab-btn" data-tab="monte">🎲 Monte Carlo</button>
+          <button class="tab-btn" data-tab="monte">📅 Seasonality</button>
           <button class="tab-btn" data-tab="backtest">🕒 Strategy Backtester</button>
           <button class="tab-btn" data-tab="notes">📌 Notes</button>
         </div>
@@ -272,9 +301,17 @@
 
         <div id="tab-monte" class="tab-content">
           <div class="card">
-            <h3>🎲 30-Day Randomized Variance Walk Simulations</h3>
-            <div id="mc-chart"></div>
-            <ul id="mc-stats" style="margin-top:14px;font-size:13px;line-height:1.7;list-style:none"></ul>
+            <h3>📅 Seasonality Analysis</h3>
+            <p style="font-size:12px;color:var(--text-muted);margin-bottom:12px">
+              Average monthly return by calendar month across the loaded price history — a pattern check, not a prediction.
+              Months with too few historical occurrences are omitted.
+            </p>
+            <table class="data-table">
+              <thead>
+                <tr><th>Month</th><th>Avg Return</th><th>Win Rate</th><th>Years of Data</th></tr>
+              </thead>
+              <tbody id="seasonality-body"></tbody>
+            </table>
           </div>
         </div>
 
@@ -348,7 +385,7 @@
     <div class="more-sheet-backdrop" id="more-sheet-backdrop"></div>
     <div class="more-sheet-panel">
       <div class="more-sheet-handle"></div>
-      <button type="button" class="more-item" data-tab="monte">🎲 Monte Carlo</button>
+      <button type="button" class="more-item" data-tab="monte">📅 Seasonality</button>
       <button type="button" class="more-item" data-tab="backtest">🕒 Strategy Backtester</button>
       <button type="button" class="more-item" data-tab="notes">📌 Notes</button>
     </div>

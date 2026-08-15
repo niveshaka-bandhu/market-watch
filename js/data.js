@@ -31,7 +31,7 @@ const DataService = (() => {
   }
 
   function chartUrls(ticker) {
-    const path = '/v8/finance/chart/' + encodeURIComponent(ticker) + '?interval=1d&range=2y';
+    const path = '/v8/finance/chart/' + encodeURIComponent(ticker) + '?interval=1d&range=5y';
     const direct = [
       'https://query1.finance.yahoo.com' + path,
       'https://query2.finance.yahoo.com' + path

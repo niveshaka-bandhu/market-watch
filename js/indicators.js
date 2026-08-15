@@ -92,6 +92,38 @@ const Indicators = (() => {
     return { mid, upper, lower };
   }
 
+  function stochastic(highs, lows, closes, period = 14, smoothK = 3, smoothD = 3) {
+    const rawK = new Array(closes.length).fill(null);
+    for (let i = period - 1; i < closes.length; i++) {
+      let hh = -Infinity;
+      let ll = Infinity;
+      for (let j = 0; j < period; j++) {
+        hh = Math.max(hh, highs[i - j]);
+        ll = Math.min(ll, lows[i - j]);
+      }
+      rawK[i] = hh === ll ? 50 : ((closes[i] - ll) / (hh - ll)) * 100;
+    }
+    const k = sma(rawK.map((v) => (v == null ? 0 : v)), smoothK);
+    for (let i = 0; i < k.length; i++) if (rawK[i] == null) k[i] = null;
+    const d = sma(k.map((v) => (v == null ? 0 : v)), smoothD);
+    for (let i = 0; i < d.length; i++) if (k[i] == null) d[i] = null;
+    return { k, d };
+  }
+
+  function williamsR(highs, lows, closes, period = 14) {
+    const out = new Array(closes.length).fill(null);
+    for (let i = period - 1; i < closes.length; i++) {
+      let hh = -Infinity;
+      let ll = Infinity;
+      for (let j = 0; j < period; j++) {
+        hh = Math.max(hh, highs[i - j]);
+        ll = Math.min(ll, lows[i - j]);
+      }
+      out[i] = hh === ll ? -50 : ((hh - closes[i]) / (hh - ll)) * -100;
+    }
+    return out;
+  }
+
   function atr(highs, lows, closes, period = 14) {
     const tr = new Array(closes.length).fill(null);
     tr[0] = highs[0] - lows[0];
@@ -118,6 +150,8 @@ const Indicators = (() => {
     const macdData = macd(closes);
     const bb = bollinger(closes, 20, 2);
     const atr14 = atr(highs, lows, closes, 14);
+    const stoch = stochastic(highs, lows, closes, 14, 3, 3);
+    const willR = williamsR(highs, lows, closes, 14);
 
     const dailyReturn = closes.map((c, i) =>
       i === 0 || !closes[i - 1] ? null : (c - closes[i - 1]) / closes[i - 1]
@@ -135,6 +169,9 @@ const Indicators = (() => {
       bbUpper: bb.upper[i],
       bbLower: bb.lower[i],
       atr: atr14[i],
+      stochK: stoch.k[i],
+      stochD: stoch.d[i],
+      williamsR: willR[i],
       dailyReturn: dailyReturn[i]
     }));
   }
@@ -478,6 +515,8 @@ const Indicators = (() => {
     macd,
     bollinger,
     atr,
+    stochastic,
+    williamsR,
     aggregateOHLC,
     riskMetrics,
     fibonacciLevels,

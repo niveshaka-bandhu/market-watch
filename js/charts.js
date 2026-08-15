@@ -38,11 +38,10 @@ const Charts = (() => {
     hovermode: 'x unified'
   };
 
-  function priceChart(df, showBollinger = true, fibLevels = null) {
+  function priceChart(df, showBollinger = true, fibLevels = null, daysToShow = 260) {
     if (typeof Plotly === 'undefined') return;
     if (!df || df.length < 5) return;
-    // Last ~1 year for clarity
-    const data = df.slice(-260);
+    const data = daysToShow ? df.slice(-daysToShow) : df;
     const dates = data.map(r => r.date);
 
     const traces = [

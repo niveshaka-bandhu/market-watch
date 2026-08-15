@@ -12,6 +12,7 @@ const App = (() => {
     showBollinger: true,
     fibEnabled: false,
     chartTimeframe: 'D',
+    chartRange: 260,
     view: 'market',
     sheet: null
   };
@@ -690,7 +691,10 @@ const App = (() => {
     if (!state.df || typeof Charts === 'undefined') return;
     const data = Indicators.aggregateOHLC(state.df, state.chartTimeframe);
     const fib = state.fibEnabled ? Indicators.fibonacciLevels(data, 130) : null;
-    Charts.priceChart(data, state.showBollinger, fib);
+    let daysToShow = state.chartRange;
+    if (daysToShow && state.chartTimeframe === 'W') daysToShow = Math.ceil(daysToShow / 5);
+    else if (daysToShow && state.chartTimeframe === 'M') daysToShow = Math.ceil(daysToShow / 21);
+    Charts.priceChart(data, state.showBollinger, fib, daysToShow);
   }
 
   function renderCandlestickPatterns(df) {
@@ -1005,32 +1009,72 @@ const App = (() => {
         (d.diis != null ? d.diis + '%' : '—') +
         '</div></div>';
     }
-    runMonteCarlo();
+    renderSeasonality();
     const btn = $('#run-backtest');
     if (btn) btn.onclick = runBacktest;
   }
 
-  function runMonteCarlo() {
+  function renderSeasonality() {
+    const host = $('#seasonality-body');
+    if (!host) return;
     const df = state.df;
-    if (!df || !df.length || typeof Charts === 'undefined') return;
-    const last = df[df.length - 1];
-    const returns = df.map((r) => r.dailyReturn).filter((v) => v != null);
-    let vol = 0.015;
-    if (returns.length > 10) {
-      const mean = returns.reduce((a, b) => a + b, 0) / returns.length;
-      vol = Math.sqrt(returns.reduce((a, b) => a + (b - mean) ** 2, 0) / returns.length) || 0.015;
+    if (!df || df.length < 60) {
+      host.innerHTML = '<tr><td colspan="4" style="color:var(--text-muted)">Not enough price history.</td></tr>';
+      return;
     }
-    const days = 30,
-      sims = 100;
-    const matrix = Array.from({ length: days }, () => new Array(sims));
-    for (let s = 0; s < sims; s++) matrix[0][s] = last.close;
-    for (let d = 1; d < days; d++) {
-      for (let s = 0; s < sims; s++) {
-        const shock = (Math.random() + Math.random() + Math.random() + Math.random() - 2) * vol;
-        matrix[d][s] = matrix[d - 1][s] * Math.exp(shock);
-      }
+    // Group daily returns by calendar month, tracking which distinct
+    // (year, month) periods contributed so "years of data" is accurate
+    // rather than just a day count.
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const buckets = Array.from({ length: 12 }, () => ({ returns: [], periods: new Set() }));
+    df.forEach((row) => {
+      if (row.dailyReturn == null || !row.date) return;
+      const m = parseInt(row.date.slice(5, 7), 10) - 1;
+      if (m < 0 || m > 11) return;
+      buckets[m].returns.push(row.dailyReturn);
+      buckets[m].periods.add(row.date.slice(0, 7)); // YYYY-MM
+    });
+    const rows = buckets
+      .map((b, i) => {
+        if (b.periods.size < 2) return null; // need at least 2 occurrences to mean anything
+        const monthlyReturns = groupIntoPeriodReturns(df, i);
+        if (!monthlyReturns.length) return null;
+        const avg = monthlyReturns.reduce((a, b2) => a + b2, 0) / monthlyReturns.length;
+        const wins = monthlyReturns.filter((r) => r > 0).length;
+        return {
+          name: monthNames[i],
+          avg: avg * 100,
+          winRate: (wins / monthlyReturns.length) * 100,
+          years: monthlyReturns.length
+        };
+      })
+      .filter(Boolean);
+    if (!rows.length) {
+      host.innerHTML = '<tr><td colspan="4" style="color:var(--text-muted)">Not enough distinct months of history yet.</td></tr>';
+      return;
     }
-    Charts.monteCarloChart(matrix);
+    host.innerHTML = rows
+      .map(
+        (r) =>
+          '<tr><td>' + r.name + '</td><td style="color:' + (r.avg >= 0 ? 'var(--green)' : 'var(--red)') + '">' +
+          (r.avg >= 0 ? '+' : '') + r.avg.toFixed(2) + '%</td><td>' + r.winRate.toFixed(0) + '%</td><td>' + r.years + '</td></tr>'
+      )
+      .join('');
+  }
+
+  // Compounds daily returns within each distinct (year, month) period into
+  // one return per period, for the given calendar month index (0-11).
+  function groupIntoPeriodReturns(df, monthIndex) {
+    const periods = {};
+    df.forEach((row) => {
+      if (row.dailyReturn == null || !row.date) return;
+      const m = parseInt(row.date.slice(5, 7), 10) - 1;
+      if (m !== monthIndex) return;
+      const key = row.date.slice(0, 7);
+      if (!periods[key]) periods[key] = 1;
+      periods[key] *= 1 + row.dailyReturn;
+    });
+    return Object.values(periods).map((factor) => factor - 1);
   }
 
   function runBacktest() {
@@ -1073,6 +1117,62 @@ const App = (() => {
   }
 
   // ---------- Load ----------
+  let tvScriptLoaded = false;
+  let tvScriptLoading = null;
+
+  function loadTvScript() {
+    if (tvScriptLoaded) return Promise.resolve();
+    if (tvScriptLoading) return tvScriptLoading;
+    tvScriptLoading = new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = 'https://s3.tradingview.com/tv.js';
+      s.onload = () => {
+        tvScriptLoaded = true;
+        resolve();
+      };
+      s.onerror = reject;
+      document.head.appendChild(s);
+    });
+    return tvScriptLoading;
+  }
+
+  function tvSymbolFor(ticker) {
+    if (!ticker) return null;
+    // state.ticker is like "RELIANCE.NS" or an index like "^NSEI" — strip
+    // the Yahoo suffix and prefix with NSE: for TradingView's symbol format.
+    const base = ticker.replace(/\.NS$/i, '').replace(/^\^/, '');
+    return 'NSE:' + base;
+  }
+
+  function renderTvChart() {
+    const host = $('#tv-chart-widget');
+    if (!host) return;
+    const symbol = tvSymbolFor(state.ticker);
+    if (!symbol) return;
+    loadTvScript()
+      .then(() => {
+        host.innerHTML = '';
+        if (typeof TradingView === 'undefined') return;
+        // eslint-disable-next-line no-undef
+        new TradingView.widget({
+          container_id: 'tv-chart-widget',
+          symbol: symbol,
+          interval: 'D',
+          timezone: 'Asia/Kolkata',
+          theme: window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light',
+          style: '1',
+          locale: 'in',
+          autosize: true,
+          hide_top_toolbar: false,
+          allow_symbol_change: false,
+          studies: ['MASimple@tv-basicstudies']
+        });
+      })
+      .catch(() => {
+        host.innerHTML = '<p style="color:var(--text-muted);font-size:13px">TradingView widget failed to load — check your connection.</p>';
+      });
+  }
+
   async function loadTicker() {
     const raw = ($('#ticker-input').value || '').trim().toUpperCase();
     if (!raw) return;
@@ -1163,6 +1263,9 @@ const App = (() => {
       } else {
         setWorkspace('quant');
       }
+
+      const tvRadio = document.querySelector('input[name="chart-source"][value="tv"]');
+      if (tvRadio && tvRadio.checked) renderTvChart();
 
       // Soft warning if chart missing but Screener OK
       if (!state.df && state.sheet) {
@@ -1281,6 +1384,31 @@ const App = (() => {
         if (state.view === 'market') drawPriceChart();
       });
     });
+    $$('input[name="chart-range"]').forEach((radio) => {
+      radio.addEventListener('change', (e) => {
+        state.chartRange = parseInt(e.target.value, 10) || 0;
+        if (state.view === 'market') drawPriceChart();
+      });
+    });
+    $$('input[name="chart-source"]').forEach((radio) => {
+      radio.addEventListener('change', (e) => {
+        const isTv = e.target.value === 'tv';
+        const ownPanel = $('#own-chart-panel');
+        const tvPanel = $('#tv-chart-panel');
+        if (ownPanel) ownPanel.style.display = isTv ? 'none' : '';
+        if (tvPanel) tvPanel.style.display = isTv ? '' : 'none';
+        if (isTv) renderTvChart();
+      });
+    });
+    // Shorter default range on mobile — a full year of daily candles
+    // squeezed into a phone-width chart reads as a solid smear rather than
+    // individual candles. Desktop keeps the 1Y default (HTML checkbox
+    // default), unchanged.
+    if (window.matchMedia && window.matchMedia('(max-width: 768px)').matches) {
+      state.chartRange = 126;
+      const sixM = document.querySelector('input[name="chart-range"][value="126"]');
+      if (sixM) sixM.checked = true;
+    }
     const input = $('#ticker-input');
     if (input) input.addEventListener('keydown', (e) => e.key === 'Enter' && loadTicker());
     const btn = $('#analyse-btn');

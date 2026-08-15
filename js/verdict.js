@@ -32,6 +32,24 @@ const VerdictEngine = (() => {
       bear.push(`RSI reads overbought at ${rsi.toFixed(1)}, flashing immediate distribution risk.`);
     }
 
+    // Stochastic Oscillator
+    if (last.stochK != null && last.stochD != null) {
+      if (last.stochK < 20 && last.stochK > (prev.stochK ?? last.stochK)) {
+        bull.push(`Stochastic %K at ${last.stochK.toFixed(1)} turning up from oversold territory.`);
+      } else if (last.stochK > 80 && last.stochK < (prev.stochK ?? last.stochK)) {
+        bear.push(`Stochastic %K at ${last.stochK.toFixed(1)} turning down from overbought territory.`);
+      }
+    }
+
+    // Williams %R
+    if (last.williamsR != null) {
+      if (last.williamsR <= -80) {
+        bull.push(`Williams %R at ${last.williamsR.toFixed(1)} — deep oversold zone.`);
+      } else if (last.williamsR >= -20) {
+        bear.push(`Williams %R at ${last.williamsR.toFixed(1)} — deep overbought zone.`);
+      }
+    }
+
     // MACD
     if (macdHist > 0) {
       bull.push('MACD histogram shows positive expansion above signal threshold lines.');
