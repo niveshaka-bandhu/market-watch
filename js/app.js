@@ -83,6 +83,15 @@ const App = (() => {
       cardIfPresent('ROE', sn.roe, '%'),
       cardIfPresent('Face Value', sn.faceValue != null ? '₹' + fmt(sn.faceValue) : null)
     ]);
+    if (d.ticker || d.about) {
+      host.innerHTML +=
+        '<div style="margin-top:12px">' +
+        (d.ticker ? '<h3>' + d.ticker + ' — Overview</h3>' : '') +
+        (d.about
+          ? '<p style="font-size:13px;color:var(--text-muted);line-height:1.5;margin:8px 0 0">' + d.about + '</p>'
+          : '') +
+        '</div>';
+    }
   }
 
   async function generatePdfReport() {
@@ -136,6 +145,20 @@ const App = (() => {
       doc.setTextColor(0, 0, 0);
     }
 
+    function sectionBanner(text) {
+      ensureSpace(30);
+      y += 6;
+      doc.setFillColor(58, 45, 127);
+      doc.rect(margin, y - 12, pageW - margin * 2, 20, 'F');
+      doc.setTextColor(255, 255, 255);
+      doc.setFontSize(11);
+      doc.setFont(undefined, 'bold');
+      doc.text(text, margin + 8, y + 2);
+      doc.setFont(undefined, 'normal');
+      doc.setTextColor(0, 0, 0);
+      y += 22;
+    }
+
     const ticker = state.rawInput || state.ticker || 'Stock';
     heading(ticker + ' — Analysis Report', 18);
     doc.setFontSize(9);
@@ -144,8 +167,21 @@ const App = (() => {
     doc.setTextColor(0, 0, 0);
     y += 22;
 
-    // Company Info
-    const sn2 = (state.sheet && state.sheet.snapshot) || {};
+    const d = state.sheet || {};
+    const sn2 = d.snapshot || {};
+    const lastRow = state.df && state.df.length ? state.df[state.df.length - 1] : null;
+
+    // ===================== HOME =====================
+    sectionBanner('HOME');
+
+    if (d.ticker || d.about) {
+      if (d.ticker) heading(d.ticker + ' — Overview', 12);
+      if (d.about) {
+        para(d.about);
+        y += 6;
+      }
+    }
+
     const infoLines = [];
     if (sn2.marketCapCr != null) infoLines.push('Market Cap: Rs.' + fmt(sn2.marketCapCr, 0) + ' Cr.');
     if (sn2.currentPrice != null) infoLines.push('Price: Rs.' + fmt(sn2.currentPrice));
@@ -160,7 +196,6 @@ const App = (() => {
       y += 8;
     }
 
-    // Verdict
     if (state.verdict) {
       heading('Verdict: ' + state.verdict.master, 13);
       para(state.verdict.summary);
@@ -177,7 +212,9 @@ const App = (() => {
       }
     }
 
-    // Chart image (best-effort — skipped silently if Plotly can't export)
+    // ===================== CHART ANALYSIS =====================
+    sectionBanner('CHART ANALYSIS');
+
     if (typeof Plotly !== 'undefined' && $('#price-chart')) {
       try {
         const imgData = await Plotly.toImage('price-chart', { format: 'png', width: 700, height: 350 });
@@ -192,19 +229,142 @@ const App = (() => {
       }
     }
 
-    // Growth summary
-    if (state.sheet) {
-      const g = state.sheet.salesGrowth || {};
-      const pg = state.sheet.profitGrowth || {};
-      const growthLines = [];
-      if (g.ttm != null) growthLines.push('Sales growth (TTM): ' + g.ttm + '%');
-      if (pg.ttm != null) growthLines.push('Profit growth (TTM): ' + pg.ttm + '%');
-      if (g.y5 != null) growthLines.push('Sales growth (5Y): ' + g.y5 + '%');
-      if (pg.y5 != null) growthLines.push('Profit growth (5Y): ' + pg.y5 + '%');
-      if (growthLines.length) {
-        heading('Growth', 13);
-        para(growthLines.join('    |    '));
+    if (lastRow) {
+      const piv = Indicators.pivots(lastRow);
+      heading('Intraday Pivot Levels', 12);
+      para(
+        'R2: Rs.' + fmt(piv.r2) + '   R1: Rs.' + fmt(piv.r1) + '   Pivot: Rs.' + fmt(piv.pivot) +
+          '   S1: Rs.' + fmt(piv.s1) + '   S2: Rs.' + fmt(piv.s2) + '   ATR(14): Rs.' + fmt(piv.atr)
+      );
+      y += 8;
+    }
+
+    if (state.df) {
+      const patterns = Indicators.detectCandlestickPatterns(state.df);
+      const breakout = Indicators.detectBreakout(state.df, 20);
+      if (patterns.length || breakout) {
+        heading('Candlestick & Breakout Signals', 12);
+        const lines = patterns.map((p) => p.name + ' (' + p.signal + '): ' + p.note);
+        if (breakout) lines.push((breakout.type === 'breakout' ? 'Breakout: ' : 'Breakdown: ') + breakout.note);
+        bulletList(lines, [40, 40, 40]);
+        y += 6;
+      }
+    }
+
+    // ===================== FUNDAMENTAL ANALYSIS =====================
+    sectionBanner('FUNDAMENTAL ANALYSIS');
+
+    if (d.pros && d.pros.length) {
+      heading('Pros', 12);
+      bulletList(d.pros, [22, 140, 60]);
+      y += 6;
+    }
+    if (d.cons && d.cons.length) {
+      heading('Cons', 12);
+      bulletList(d.cons, [200, 40, 40]);
+      y += 6;
+    }
+
+    const keyMetricLines = [];
+    if (d.trailingEps != null) keyMetricLines.push('TTM EPS: Rs.' + fmt(d.trailingEps));
+    if (d.bookValue != null) keyMetricLines.push('Book Value: Rs.' + fmt(d.bookValue));
+    if (d.freeCashflowCr != null) keyMetricLines.push('FCF: Rs.' + fmt(d.freeCashflowCr, 0) + ' Cr.');
+    if (d.salesTtmCr != null) keyMetricLines.push('Sales TTM: Rs.' + fmt(d.salesTtmCr, 0) + ' Cr.');
+    if (d.patTtmCr != null) keyMetricLines.push('PAT TTM: Rs.' + fmt(d.patTtmCr, 0) + ' Cr.');
+    if (keyMetricLines.length) {
+      heading('Key Metrics', 12);
+      para(keyMetricLines.join('    |    '));
+      y += 8;
+    }
+
+    const g = d.salesGrowth || {};
+    const pg = d.profitGrowth || {};
+    const growthLines = [];
+    if (g.ttm != null) growthLines.push('Sales growth (TTM): ' + g.ttm + '%');
+    if (pg.ttm != null) growthLines.push('Profit growth (TTM): ' + pg.ttm + '%');
+    if (g.y5 != null) growthLines.push('Sales growth (5Y): ' + g.y5 + '%');
+    if (pg.y5 != null) growthLines.push('Profit growth (5Y): ' + pg.y5 + '%');
+    if (growthLines.length) {
+      heading('Growth', 12);
+      para(growthLines.join('    |    '));
+      y += 8;
+    }
+
+    const dupont = duPontAnalysis(d, sn2);
+    if (dupont) {
+      heading('DuPont ROE Decomposition', 12);
+      para(
+        'Net Margin: ' + dupont.netMargin.toFixed(2) + '%   Asset Turnover: ' + dupont.assetTurnover.toFixed(2) +
+          '×   Equity Multiplier: ' + dupont.equityMultiplier.toFixed(2) + '×   Computed ROE: ' +
+          dupont.computedRoe.toFixed(2) + '%'
+      );
+      y += 8;
+    }
+
+    const piotroski = piotroskiFScore(d);
+    if (piotroski) {
+      heading('Piotroski F-Score: ' + piotroski.score + ' / ' + piotroski.max, 12);
+      y += 4;
+    }
+
+    const gf = grahamFormulaFairValue(d);
+    const lv = lynchFairValue(d);
+    const fvLines = [];
+    if (gf) fvLines.push('Graham Formula: Rs.' + fmt(gf.value) + (gf.floored ? ' (5% growth floor used)' : ''));
+    if (lv) fvLines.push('Peter Lynch: Rs.' + fmt(lv.value) + (lv.floored ? ' (5% growth floor used)' : ''));
+    if (fvLines.length) {
+      heading('Fair Value Estimates', 12);
+      para(fvLines.join('    |    '));
+      y += 8;
+    }
+
+    // ===================== QUALITY MATRIX =====================
+    sectionBanner('QUALITY MATRIX');
+
+    const qualityLines = [];
+    if (d.roe && d.roe.last != null) qualityLines.push('ROE (last yr): ' + d.roe.last + '%');
+    if (d.roce != null) qualityLines.push('ROCE: ' + d.roce + '%');
+    if (d.opmTtm != null) qualityLines.push('OPM TTM: ' + d.opmTtm + '%');
+    if (d.promoters != null) qualityLines.push('Promoter holding: ' + d.promoters + '%');
+    if (d.fiis != null || d.diis != null) qualityLines.push('FII+DII: ' + ((d.fiis || 0) + (d.diis || 0)).toFixed(2) + '%');
+    if (qualityLines.length) {
+      heading('Accounting & Solvency', 12);
+      para(qualityLines.join('    |    '));
+      y += 8;
+    }
+
+    if (state.df) {
+      const rm = Indicators.riskMetrics(state.df);
+      const wk52 = Indicators.week52Range(state.df);
+      const riskLines = [];
+      if (rm) {
+        riskLines.push('Annualized Return: ' + rm.annualReturn.toFixed(1) + '%');
+        riskLines.push('Annualized Volatility: ' + rm.annualVol.toFixed(1) + '%');
+        if (rm.sharpe != null) riskLines.push('Sharpe: ' + rm.sharpe.toFixed(2));
+        riskLines.push('Max Drawdown: ' + rm.maxDrawdown.toFixed(1) + '%');
+      }
+      if (wk52) {
+        riskLines.push('52W High: Rs.' + fmt(wk52.high));
+        riskLines.push('52W Low: Rs.' + fmt(wk52.low));
+      }
+      if (riskLines.length) {
+        heading('Risk & Return Analytics', 12);
+        para(riskLines.join('    |    '));
         y += 8;
+      }
+
+      if (lastRow) {
+        const proj = returnProjection(d, sn2, lastRow.close, rm);
+        if (proj) {
+          const projLines = [];
+          if (proj.trend.oneYear != null) projLines.push('Trend 1Y: ' + proj.trend.oneYear.toFixed(1) + '%');
+          if (proj.reversion.oneYear != null) projLines.push('Fair-value re-rating 1Y: ' + proj.reversion.oneYear.toFixed(1) + '%');
+          if (projLines.length) {
+            heading('Return Projection (illustrative, not a forecast)', 12);
+            para(projLines.join('    |    '));
+            y += 8;
+          }
+        }
       }
     }
 
@@ -594,14 +754,6 @@ const App = (() => {
     host.innerHTML =
       '<div style="margin-top:8px">' +
       '<div class="card">' +
-      '<h3>' +
-      (d.ticker || '') +
-      ' — Overview</h3>' +
-      (d.about
-        ? '<p style="font-size:13px;color:var(--text-muted);line-height:1.5;margin:8px 0 14px">' +
-          d.about +
-          '</p>'
-        : '') +
       '<div class="two-col">' +
       '<div><strong style="color:var(--green)">Pros</strong><ul class="bull-list">' +
       (d.pros || []).map((p) => '<li>' + p + '</li>').join('') +
