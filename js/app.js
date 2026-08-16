@@ -1055,6 +1055,16 @@ const App = (() => {
     // Plotly needs a resize nudge once the fullscreen layout has actually
     // settled — immediate draw can measure the pre-fullscreen container size.
     setTimeout(() => drawPriceChart(), 200);
+
+    // The rotation animation itself can finish later than our fixed 200ms
+    // redraw above (varies by device) — catch that with a live listener
+    // instead of guessing a longer fixed delay.
+    window.addEventListener('resize', fullscreenResizeHandler);
+    window.addEventListener('orientationchange', fullscreenResizeHandler);
+  }
+
+  function fullscreenResizeHandler() {
+    if (state.fullscreenChart) drawPriceChart();
   }
 
   function closeChartFullscreen() {
@@ -1063,6 +1073,8 @@ const App = (() => {
     overlay.classList.remove('open');
     overlay.classList.add('hidden');
     state.fullscreenChart = false;
+    window.removeEventListener('resize', fullscreenResizeHandler);
+    window.removeEventListener('orientationchange', fullscreenResizeHandler);
 
     if (screen.orientation && screen.orientation.unlock) {
       try {

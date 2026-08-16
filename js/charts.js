@@ -126,11 +126,22 @@ const Charts = (() => {
       });
     }
 
+    const isFullscreen = targetId.replace(/^#/, '') === 'price-chart-fullscreen';
+
     const layout = {
       ...layoutBase,
-      height: 420,
+      // Fixed height works on desktop's fullscreen overlay since the viewport
+      // is comfortably taller than 420px. On mobile landscape (which the
+      // expand button rotates into), total screen height can be well under
+      // 420px, so the chart overflowed its container and clipped the x-axis
+      // time labels at the bottom. Fullscreen instead autosizes to whatever
+      // height the flex container actually has.
+      ...(isFullscreen ? { autosize: true } : { height: 420 }),
       shapes,
       annotations,
+      margin: isFullscreen
+        ? { ...layoutBase.margin, b: 50 }
+        : layoutBase.margin,
       xaxis: {
         ...layoutBase.xaxis,
         type: 'date',
