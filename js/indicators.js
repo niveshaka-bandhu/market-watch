@@ -75,6 +75,40 @@ const Indicators = (() => {
     return { macd: macdLine, signal: signalLine, hist };
   }
 
+  function volumeProfile(df, bins) {
+    bins = bins || 24;
+    if (!df || !df.length) return null;
+    let hi = -Infinity;
+    let lo = Infinity;
+    df.forEach((r) => {
+      if (r.high > hi) hi = r.high;
+      if (r.low < lo) lo = r.low;
+    });
+    if (!isFinite(hi) || !isFinite(lo) || hi === lo) return null;
+    const binSize = (hi - lo) / bins;
+    const volumes = new Array(bins).fill(0);
+    df.forEach((r) => {
+      // Simplification: each candle's full volume is assigned to the bin
+      // containing its typical price (H+L+C)/3, rather than distributing it
+      // proportionally across every bin the candle's range touched. Good
+      // enough for spotting where volume concentrated; a true volume-profile
+      // tool would split volume across touched bins.
+      const typical = (r.high + r.low + r.close) / 3;
+      let idx = Math.floor((typical - lo) / binSize);
+      if (idx >= bins) idx = bins - 1;
+      if (idx < 0) idx = 0;
+      volumes[idx] += r.volume || 0;
+    });
+    const maxVol = Math.max(...volumes);
+    const pocIdx = volumes.indexOf(maxVol);
+    const levels = volumes.map((v, i) => ({
+      priceLow: lo + i * binSize,
+      priceHigh: lo + (i + 1) * binSize,
+      volume: v
+    }));
+    return { levels, pocPrice: lo + (pocIdx + 0.5) * binSize, maxVol };
+  }
+
   function ichimoku(df) {
     if (!df || df.length < 52) return null;
     const highs = df.map((r) => r.high);
@@ -557,6 +591,7 @@ const Indicators = (() => {
     stochastic,
     williamsR,
     ichimoku,
+    volumeProfile,
     aggregateOHLC,
     riskMetrics,
     fibonacciLevels,

@@ -1300,6 +1300,237 @@ const App = (() => {
   }
 
   // ---------- Market view ----------
+  function technicalBias(row) {
+    if (!row) return null;
+    let bullPoints = 0;
+    let bearPoints = 0;
+    let total = 0;
+    if (row.sma50 != null && row.sma200 != null) {
+      total++;
+      if (row.sma50 > row.sma200) bullPoints++;
+      else bearPoints++;
+    }
+    if (row.rsi != null) {
+      total++;
+      if (row.rsi > 50) bullPoints++;
+      else if (row.rsi < 50) bearPoints++;
+    }
+    if (row.macdHist != null) {
+      total++;
+      if (row.macdHist > 0) bullPoints++;
+      else bearPoints++;
+    }
+    if (!total) return null;
+    const bullRatio = bullPoints / total;
+    let label;
+    let cls;
+    if (bullRatio >= 0.66) {
+      label = 'Bullish';
+      cls = 'var(--green)';
+    } else if (bullRatio <= 0.33) {
+      label = 'Bearish';
+      cls = 'var(--red)';
+    } else {
+      label = 'Neutral';
+      cls = 'var(--text-muted)';
+    }
+    return { label, cls, bullRatio };
+  }
+
+  function renderMultiTimeframeConfluence() {
+    const host = $('#mtf-confluence');
+    if (!host) return;
+    if (!state.df || state.df.length < 30) {
+      host.innerHTML = '<p style="font-size:12px;color:var(--text-muted)">Not enough price history.</p>';
+      return;
+    }
+    const weekly = Indicators.aggregateOHLC(state.df, 'W');
+    const monthly = Indicators.aggregateOHLC(state.df, 'M');
+    const timeframes = [
+      { label: 'Day', bias: technicalBias(state.df[state.df.length - 1]) },
+      { label: 'Week', bias: technicalBias(weekly[weekly.length - 1]) },
+      { label: 'Month', bias: technicalBias(monthly[monthly.length - 1]) }
+    ].filter((t) => t.bias);
+
+    if (!timeframes.length) {
+      host.innerHTML = '<p style="font-size:12px;color:var(--text-muted)">Not enough history to compute confluence.</p>';
+      return;
+    }
+    const bullCount = timeframes.filter((t) => t.bias.label === 'Bullish').length;
+    const bearCount = timeframes.filter((t) => t.bias.label === 'Bearish').length;
+    let summary;
+    if (bullCount === timeframes.length) {
+      summary = { text: `All ${timeframes.length} timeframes bullish — strong confluence.`, color: 'var(--green)' };
+    } else if (bearCount === timeframes.length) {
+      summary = { text: `All ${timeframes.length} timeframes bearish — strong confluence.`, color: 'var(--red)' };
+    } else {
+      summary = { text: 'Mixed signals across timeframes — no strong confluence.', color: 'var(--text-muted)' };
+    }
+    const cards = timeframes
+      .map(
+        (t) =>
+          '<div class="metric-card"><div class="label">' + t.label + '</div><div class="value" style="font-size:16px;color:' +
+          t.bias.cls + '">' + t.bias.label + '</div></div>'
+      )
+      .join('');
+    host.innerHTML =
+      '<div class="metrics-row" style="margin-bottom:10px">' + cards + '</div>' +
+      '<p style="font-size:13px;font-weight:600;color:' + summary.color + '">' + summary.text + '</p>';
+  }
+
+  function renderVolumeProfile(df) {
+    const host = $('#volume-profile');
+    if (!host) return;
+    const vp = Indicators.volumeProfile(df, 16);
+    if (!vp) {
+      host.innerHTML = '<p style="font-size:12px;color:var(--text-muted)">Not enough data.</p>';
+      return;
+    }
+    const maxVol = vp.maxVol || 1;
+    const rows = vp.levels
+      .slice()
+      .reverse() // highest price at top, matching how price charts read
+      .map((lvl) => {
+        const isPoc = lvl.priceLow <= vp.pocPrice && vp.pocPrice < lvl.priceHigh;
+        const pct = (lvl.volume / maxVol) * 100;
+        const label = '₹' + fmt((lvl.priceLow + lvl.priceHigh) / 2, 0);
+        return (
+          '<div class="vp-row' + (isPoc ? ' vp-poc' : '') + '">' +
+          '<div class="vp-label">' + label + '</div>' +
+          '<div class="vp-bar-track"><div class="vp-bar-fill" style="width:' + pct.toFixed(1) + '%"></div></div>' +
+          '</div>'
+        );
+      })
+      .join('');
+    host.innerHTML =
+      rows +
+      '<p style="font-size:11px;color:var(--text-muted);margin-top:8px">Point of Control (heaviest historical volume): <strong style="color:var(--orange)">₹' +
+      fmt(vp.pocPrice) + '</strong></p>';
+  }
+
+  const VERDICT_HISTORY_KEY = 'quantVerdict.history.v1';
+
+  function loadVerdictHistoryStore() {
+    try {
+      return JSON.parse(localStorage.getItem(VERDICT_HISTORY_KEY) || '{}');
+    } catch (e) {
+      return {};
+    }
+  }
+
+  function saveVerdictHistoryEntry(ticker, entry) {
+    try {
+      const store = loadVerdictHistoryStore();
+      const key = ticker.toUpperCase();
+      const list = store[key] || [];
+      const today = new Date().toISOString().slice(0, 10);
+      // Replace today's entry if one already exists, so re-analysing the
+      // same ticker repeatedly in a day doesn't spam duplicate rows.
+      const idx = list.findIndex((e) => e.date === today);
+      if (idx >= 0) list[idx] = entry;
+      else list.push(entry);
+      store[key] = list.slice(-50); // cap history length per ticker
+      localStorage.setItem(VERDICT_HISTORY_KEY, JSON.stringify(store));
+    } catch (e) {
+      console.warn('Could not save verdict history', e);
+    }
+  }
+
+  function renderVerdictHistory(ticker) {
+    const host = $('#verdict-history');
+    if (!host || !ticker) return;
+    const store = loadVerdictHistoryStore();
+    const list = (store[ticker.toUpperCase()] || []).slice().reverse();
+    if (!list.length) {
+      host.innerHTML = '<p style="font-size:12px;color:var(--text-muted)">No saved history yet for this ticker — check back after future visits.</p>';
+      return;
+    }
+    const currentPrice = state.df && state.df.length ? state.df[state.df.length - 1].close : null;
+    const rows = list
+      .map((e) => {
+        let changeCell = '—';
+        if (currentPrice != null && e.price) {
+          const pct = ((currentPrice - e.price) / e.price) * 100;
+          changeCell =
+            '<span style="color:' + (pct >= 0 ? 'var(--green)' : 'var(--red)') + '">' +
+            (pct >= 0 ? '+' : '') + pct.toFixed(1) + '%</span>';
+        }
+        return (
+          '<tr><td>' + e.date + '</td><td>' + e.master + '</td><td>' +
+          (e.price != null ? '₹' + fmt(e.price) : '—') + '</td><td>' + changeCell + '</td></tr>'
+        );
+      })
+      .join('');
+    host.innerHTML =
+      '<table class="data-table"><thead><tr><th>Date</th><th>Verdict</th><th>Price Then</th><th>Change Since</th></tr></thead>' +
+      '<tbody>' + rows + '</tbody></table>';
+  }
+
+  function exportCsv() {
+    if (!state.df || !state.df.length) {
+      alert('Analyse a ticker first.');
+      return;
+    }
+    const lines = [];
+    lines.push('Quant Verdict Export — ' + (state.rawInput || state.ticker || '') + ' — ' + new Date().toLocaleString('en-IN'));
+    lines.push('');
+    lines.push('=== Price History ===');
+    lines.push('Date,Open,High,Low,Close,Volume,SMA50,SMA200,RSI,MACD Hist');
+    state.df.forEach((r) => {
+      lines.push(
+        [
+          r.date, r.open, r.high, r.low, r.close, r.volume,
+          r.sma50 != null ? r.sma50.toFixed(2) : '',
+          r.sma200 != null ? r.sma200.toFixed(2) : '',
+          r.rsi != null ? r.rsi.toFixed(2) : '',
+          r.macdHist != null ? r.macdHist.toFixed(2) : ''
+        ].join(',')
+      );
+    });
+
+    if (state.sheet) {
+      const d = state.sheet;
+      const sn = d.snapshot || {};
+      const g = d.salesGrowth || {};
+      const pg = d.profitGrowth || {};
+      lines.push('');
+      lines.push('=== Company Info ===');
+      lines.push('Metric,Value');
+      if (sn.marketCapCr != null) lines.push('Market Cap (Cr),' + sn.marketCapCr);
+      if (sn.currentPrice != null) lines.push('Current Price,' + sn.currentPrice);
+      if (sn.stockPE != null) lines.push('P/E,' + sn.stockPE);
+      if (sn.bookValue != null) lines.push('Book Value,' + sn.bookValue);
+      if (sn.roe != null) lines.push('ROE %,' + sn.roe);
+      if (sn.roce != null) lines.push('ROCE %,' + sn.roce);
+      if (sn.dividendYield != null) lines.push('Dividend Yield %,' + sn.dividendYield);
+      lines.push('');
+      lines.push('=== Growth ===');
+      lines.push('Metric,Value');
+      if (g.ttm != null) lines.push('Sales Growth TTM %,' + g.ttm);
+      if (pg.ttm != null) lines.push('Profit Growth TTM %,' + pg.ttm);
+      if (g.y5 != null) lines.push('Sales Growth 5Y %,' + g.y5);
+      if (pg.y5 != null) lines.push('Profit Growth 5Y %,' + pg.y5);
+    }
+
+    if (state.verdict) {
+      lines.push('');
+      lines.push('=== Verdict ===');
+      lines.push('Master,' + state.verdict.master);
+      lines.push('Bull Ratio,' + (state.verdict.bullRatio * 100).toFixed(1) + '%');
+    }
+
+    const csv = lines.join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = (state.rawInput || 'export') + '-quant-verdict.csv';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
   function renderMarketView() {
     renderCompanyInfoTop(state.sheet);
     const v = state.verdict;
@@ -1313,6 +1544,7 @@ const App = (() => {
       }
       renderValuationWidgets(null);
       renderSheetDashboard(state.sheet);
+      renderVerdictHistory(state.rawInput);
       return;
     }
     const last = v.latest;
@@ -1351,6 +1583,9 @@ const App = (() => {
     if (state.df) drawPriceChart();
     renderCandlestickPatterns(state.df);
     renderRiskMetrics(state.df, state.sheet);
+    renderMultiTimeframeConfluence();
+    renderVolumeProfile(state.df);
+    renderVerdictHistory(state.rawInput);
     const piv = Indicators.pivots(last);
     $('#pivot-r2').textContent = formatINR(piv.r2);
     $('#pivot-r1').textContent = formatINR(piv.r1);
@@ -1709,6 +1944,14 @@ const App = (() => {
         }
 
         state.verdict = VerdictEngine.analyse(state.df, verdictInfo);
+        if (state.verdict && state.rawInput) {
+          saveVerdictHistoryEntry(state.rawInput, {
+            date: new Date().toISOString().slice(0, 10),
+            master: state.verdict.master,
+            bullRatio: state.verdict.bullRatio,
+            price: state.df[state.df.length - 1].close
+          });
+        }
       } else {
         state.df = null;
         state.verdict = null;
@@ -1917,6 +2160,8 @@ const App = (() => {
       });
     const peerBtn = $('#peer-compare-btn');
     if (peerBtn) peerBtn.addEventListener('click', runPeerComparison);
+    const csvBtn = $('#csv-export-btn');
+    if (csvBtn) csvBtn.addEventListener('click', exportCsv);
     const intervalSel = $('#chart-interval');
     if (intervalSel) {
       intervalSel.addEventListener('change', (e) => {

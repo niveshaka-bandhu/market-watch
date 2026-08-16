@@ -84,6 +84,9 @@
           <button type="button" id="share-report-btn" style="background:var(--surface-2);color:var(--text);border:1px solid var(--border);padding:9px 18px;border-radius:8px;font-weight:600;font-size:13px;cursor:pointer">
             🔗 Share
           </button>
+          <button type="button" id="csv-export-btn" style="background:var(--surface-2);color:var(--text);border:1px solid var(--border);padding:9px 18px;border-radius:8px;font-weight:600;font-size:13px;cursor:pointer">
+            ⬇️ Export CSV
+          </button>
         </div>
         <div id="verdict-box" class="verdict-box"></div>
 
@@ -116,6 +119,22 @@
             <div class="label">Bull Convergence Weight</div>
             <div class="value" id="m-bull">—</div>
           </div>
+        </div>
+
+        <div class="card" style="margin-top:16px">
+          <h3>🧭 Multi-Timeframe Confluence</h3>
+          <p style="font-size:11.5px;color:var(--text-muted);margin-bottom:10px">
+            Whether Day/Week/Month all agree — agreement across timeframes is a stronger signal than any one alone.
+          </p>
+          <div id="mtf-confluence"></div>
+        </div>
+
+        <div class="card" style="margin-top:16px">
+          <h3>📜 Verdict History (this device)</h3>
+          <p style="font-size:11.5px;color:var(--text-muted);margin-bottom:10px">
+            Saved locally in this browser only — a record of past verdicts for this ticker to check against later.
+          </p>
+          <div id="verdict-history"></div>
         </div>
         </div>
 
@@ -178,6 +197,15 @@
             Detected from the most recent candles — short-term signals, not a forecast.
           </p>
           <div id="candlestick-patterns"></div>
+        </div>
+
+        <div class="card" style="margin-bottom:20px">
+          <h3>📊 Volume Profile</h3>
+          <p style="font-size:12px;color:var(--text-muted);margin-bottom:10px">
+            Where trading volume concentrated by price level over the loaded history — the highlighted level (POC)
+            is the price with the heaviest historical activity, often acting as support/resistance.
+          </p>
+          <div id="volume-profile"></div>
         </div>
 
         <div class="card" style="margin-bottom:20px">

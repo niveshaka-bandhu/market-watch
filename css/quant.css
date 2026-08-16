@@ -834,3 +834,37 @@ table.data-table thead th {
     cursor: pointer;
   }
 }
+
+.vp-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  margin-bottom: 3px;
+}
+.vp-label {
+  width: 90px;
+  flex-shrink: 0;
+  color: var(--text-muted);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.vp-bar-track {
+  flex: 1;
+  background: var(--surface-2);
+  border-radius: 3px;
+  overflow: hidden;
+  height: 14px;
+}
+.vp-bar-fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 3px;
+}
+.vp-row.vp-poc .vp-bar-fill {
+  background: var(--orange);
+}
+.vp-row.vp-poc .vp-label {
+  color: var(--orange);
+  font-weight: 700;
+}
