@@ -65,9 +65,30 @@ const App = (() => {
     );
   }
 
+  function updateStickyQuote(d) {
+    const group = $('#sticky-quote-group');
+    const el = $('#sticky-quote');
+    if (!group || !el) return;
+    if (!d) {
+      group.style.display = 'none';
+      return;
+    }
+    const sn = d.snapshot || {};
+    const parts = [];
+    if (sn.currentPrice != null) parts.push('₹' + fmt(sn.currentPrice));
+    if (sn.stockPE != null) parts.push('P/E ' + fmt(sn.stockPE));
+    if (!parts.length) {
+      group.style.display = 'none';
+      return;
+    }
+    el.innerHTML = parts.map((p) => '<span>' + p + '</span>').join('');
+    group.style.display = 'flex';
+  }
+
   function renderCompanyInfoTop(d) {
     const host = $('#company-info-top');
     if (!host) return;
+    updateStickyQuote(d);
     if (!d) {
       host.innerHTML = '';
       return;
@@ -1466,8 +1487,8 @@ const App = (() => {
       })
       .join('');
     host.innerHTML =
-      '<table class="data-table"><thead><tr><th>Date</th><th>Verdict</th><th>Price Then</th><th>Change Since</th></tr></thead>' +
-      '<tbody>' + rows + '</tbody></table>';
+      '<div style="overflow-x:auto"><table class="data-table"><thead><tr><th>Date</th><th>Verdict</th><th>Price Then</th><th>Change Since</th></tr></thead>' +
+      '<tbody>' + rows + '</tbody></table></div>';
   }
 
   function exportCsv() {
@@ -1572,14 +1593,7 @@ const App = (() => {
 
     const livePx =
       state.info && state.info.currentPrice != null ? state.info.currentPrice : last.close;
-    const basePx =
-      state.info && state.info.previousClose != null ? state.info.previousClose : prev.close;
-    const chg = livePx - basePx;
-    const pct = basePx ? (chg / basePx) * 100 : 0;
     $('#m-price').textContent = formatINR(livePx);
-    $('#m-delta').textContent =
-      (chg >= 0 ? '+' : '') + chg.toFixed(2) + ' (' + (pct >= 0 ? '+' : '') + pct.toFixed(2) + '%)';
-    $('#m-delta').className = 'delta ' + (chg >= 0 ? 'positive' : 'negative');
     $('#m-rsi').textContent = last.rsi != null ? last.rsi.toFixed(1) : '—';
     $('#m-macd').textContent = last.macdHist != null ? last.macdHist.toFixed(2) : '—';
     $('#m-bull').textContent = (v.bullRatio * 100).toFixed(1) + '%';
