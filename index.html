@@ -248,11 +248,17 @@
             <div class="form-row" style="margin-bottom:10px">
               <div class="form-group">
                 <label>Peer 1</label>
-                <input type="text" id="peer-1" placeholder="e.g. TCS" autocomplete="off" style="text-transform:uppercase" />
+                <div style="position:relative">
+                  <input type="text" id="peer-1" placeholder="e.g. TCS" autocomplete="off" style="text-transform:uppercase" />
+                  <div id="peer-1-suggest" class="search-suggest" hidden></div>
+                </div>
               </div>
               <div class="form-group">
                 <label>Peer 2 (optional)</label>
-                <input type="text" id="peer-2" placeholder="e.g. INFY" autocomplete="off" style="text-transform:uppercase" />
+                <div style="position:relative">
+                  <input type="text" id="peer-2" placeholder="e.g. INFY" autocomplete="off" style="text-transform:uppercase" />
+                  <div id="peer-2-suggest" class="search-suggest" hidden></div>
+                </div>
               </div>
               <div class="form-group" style="justify-content:flex-end">
                 <label>&nbsp;</label>

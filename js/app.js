@@ -564,9 +564,7 @@ const App = (() => {
     }
   }
 
-  function setupSearch() {
-    const input = $('#ticker-input');
-    const box = $('#search-suggest');
+  function setupTickerAutocomplete(input, box) {
     if (!input || !box) return;
 
     let activeIdx = -1;
@@ -668,6 +666,12 @@ const App = (() => {
     document.addEventListener('click', (e) => {
       if (e.target !== input && !box.contains(e.target)) hideBox();
     });
+  }
+
+  function setupSearch() {
+    setupTickerAutocomplete($('#ticker-input'), $('#search-suggest'));
+    setupTickerAutocomplete($('#peer-1'), $('#peer-1-suggest'));
+    setupTickerAutocomplete($('#peer-2'), $('#peer-2-suggest'));
   }
 
   // ---------- Apply Screener data to valuation + grids ----------
