@@ -161,6 +161,10 @@
               <input type="checkbox" id="show-fib" />
               Show Fibonacci Levels
             </label>
+            <label class="checkbox-wrap" style="margin-top:0">
+              <input type="checkbox" id="show-ichimoku" />
+              Show Ichimoku Cloud
+            </label>
           </div>
           <div id="price-chart"></div>
           <p id="chart-mode-note" style="font-size:11px;color:var(--text-muted);margin-top:8px">
@@ -207,6 +211,30 @@
 
         <div id="zone-fundamentals" class="mobile-zone">
         <div class="section-title" id="fundamentals-heading" style="margin-top:4px">💎 Screener Fundamental Analysis</div>
+          <div class="card">
+            <h3>⚖️ Peer Comparison</h3>
+            <p style="font-size:11.5px;color:var(--text-muted);margin-bottom:10px;line-height:1.5">
+              Compares against Screener data for up to 2 peer tickers, fetched one at a time — cached
+              tickers return instantly, uncached ones take a few seconds each while the sheet scrapes them.
+            </p>
+            <div class="form-row" style="margin-bottom:10px">
+              <div class="form-group">
+                <label>Peer 1</label>
+                <input type="text" id="peer-1" placeholder="e.g. TCS" autocomplete="off" style="text-transform:uppercase" />
+              </div>
+              <div class="form-group">
+                <label>Peer 2 (optional)</label>
+                <input type="text" id="peer-2" placeholder="e.g. INFY" autocomplete="off" style="text-transform:uppercase" />
+              </div>
+              <div class="form-group" style="justify-content:flex-end">
+                <label>&nbsp;</label>
+                <button type="button" id="peer-compare-btn" style="background:var(--accent);color:#fff;border:none;padding:9px 16px;border-radius:8px;font-weight:600;cursor:pointer">
+                  Compare
+                </button>
+              </div>
+            </div>
+            <div id="peer-comparison-result"></div>
+          </div>
           <div class="card">
             <h3>💎 Intrinsic Valuation Models</h3>
             <p id="fundamentals-note" style="font-size:12px;margin-bottom:12px;color:var(--text-muted)"></p>

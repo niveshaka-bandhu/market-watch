@@ -159,6 +159,22 @@ const VerdictEngine = (() => {
       else bear.push(`Breakdown: ${info.breakout.note}`);
     }
 
+    // Ichimoku Cloud
+    if (info.ichimoku && info.ichimoku.senkouA != null && info.ichimoku.senkouB != null) {
+      const { price, senkouA, senkouB, tenkan, kijun } = info.ichimoku;
+      const cloudTop = Math.max(senkouA, senkouB);
+      const cloudBottom = Math.min(senkouA, senkouB);
+      if (price > cloudTop) {
+        bull.push('Price is trading above the Ichimoku Cloud — bullish trend structure.');
+      } else if (price < cloudBottom) {
+        bear.push('Price is trading below the Ichimoku Cloud — bearish trend structure.');
+      }
+      if (tenkan != null && kijun != null) {
+        if (tenkan > kijun) bull.push('Ichimoku Tenkan-sen is above Kijun-sen — short-term momentum is positive.');
+        else if (tenkan < kijun) bear.push('Ichimoku Tenkan-sen is below Kijun-sen — short-term momentum is negative.');
+      }
+    }
+
     // Score
     const total = bull.length + bear.length;
     const bullRatio = total > 0 ? bull.length / total : 0.5;

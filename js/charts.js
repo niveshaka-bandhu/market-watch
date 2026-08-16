@@ -38,7 +38,18 @@ const Charts = (() => {
     hovermode: 'x unified'
   };
 
-  function priceChart(df, showBollinger = true, fibLevels = null, daysToShow = 260, targetId = 'price-chart') {
+  function nextTradingDates(lastDateStr, count) {
+    const dates = [];
+    let d = new Date(lastDateStr + 'T00:00:00Z');
+    while (dates.length < count) {
+      d = new Date(d.getTime() + 86400000);
+      const day = d.getUTCDay();
+      if (day !== 0 && day !== 6) dates.push(d.toISOString().slice(0, 10));
+    }
+    return dates;
+  }
+
+  function priceChart(df, showBollinger = true, fibLevels = null, daysToShow = 260, targetId = 'price-chart', ichimokuData = null) {
     if (typeof Plotly === 'undefined') return;
     if (!df || df.length < 5) return;
     const data = daysToShow ? df.slice(-daysToShow) : df;
@@ -95,6 +106,64 @@ const Charts = (() => {
           fill: 'tonexty',
           fillcolor: bbFill,
           showlegend: false
+        }
+      );
+    }
+
+    if (ichimokuData && data.length) {
+      const offset = df.length - data.length;
+      const sliceArr = (arr) => arr.slice(offset);
+      const tenkanSlice = sliceArr(ichimokuData.tenkan);
+      const kijunSlice = sliceArr(ichimokuData.kijun);
+      const senkouASlice = sliceArr(ichimokuData.senkouA);
+      const senkouBSlice = sliceArr(ichimokuData.senkouB);
+      const chikouSlice = sliceArr(ichimokuData.chikou);
+
+      traces.push(
+        {
+          type: 'scatter', mode: 'lines', x: dates, y: tenkanSlice,
+          name: 'Tenkan-sen (9)', line: { color: '#e11d48', width: 1 }
+        },
+        {
+          type: 'scatter', mode: 'lines', x: dates, y: kijunSlice,
+          name: 'Kijun-sen (26)', line: { color: '#2563eb', width: 1 }
+        },
+        {
+          type: 'scatter', mode: 'lines', x: dates, y: chikouSlice,
+          name: 'Chikou Span', line: { color: '#84cc16', width: 1, dash: 'dot' }
+        }
+      );
+
+      // Cloud (Senkou Span A/B) projects 26 trading days into the future —
+      // extend the date axis with future weekday dates for those two traces
+      // only. Simplification: the cloud fill uses one translucent color
+      // regardless of whether A is above or below B (a true implementation
+      // colors bullish/bearish segments differently, which needs splitting
+      // the fill into separate segments — not done here to keep this a
+      // single readable pass).
+      const futureDates = nextTradingDates(dates[dates.length - 1], 26);
+      const extendedDates = dates.concat(futureDates);
+      const cloudLen = extendedDates.length;
+      const senkouADisplay = new Array(cloudLen).fill(null);
+      const senkouBDisplay = new Array(cloudLen).fill(null);
+      for (let i = 0; i < senkouASlice.length; i++) {
+        const pos = i + 26;
+        if (pos < cloudLen) {
+          senkouADisplay[pos] = senkouASlice[i];
+          senkouBDisplay[pos] = senkouBSlice[i];
+        }
+      }
+      const cloudFill = isLight ? 'rgba(37,99,235,0.08)' : 'rgba(59,130,246,0.10)';
+      const cloudLine = isLight ? 'rgba(37,99,235,0.3)' : 'rgba(59,130,246,0.35)';
+      traces.push(
+        {
+          type: 'scatter', mode: 'lines', x: extendedDates, y: senkouADisplay,
+          name: 'Senkou Span A', line: { color: cloudLine, width: 1 }, showlegend: false
+        },
+        {
+          type: 'scatter', mode: 'lines', x: extendedDates, y: senkouBDisplay,
+          name: 'Senkou Span B (Cloud)', line: { color: cloudLine, width: 1 },
+          fill: 'tonexty', fillcolor: cloudFill
         }
       );
     }

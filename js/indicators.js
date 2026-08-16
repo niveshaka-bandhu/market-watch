@@ -75,6 +75,45 @@ const Indicators = (() => {
     return { macd: macdLine, signal: signalLine, hist };
   }
 
+  function ichimoku(df) {
+    if (!df || df.length < 52) return null;
+    const highs = df.map((r) => r.high);
+    const lows = df.map((r) => r.low);
+    const closes = df.map((r) => r.close);
+    const n = closes.length;
+
+    function periodMid(period, i) {
+      if (i < period - 1) return null;
+      let hh = -Infinity;
+      let ll = Infinity;
+      for (let j = 0; j < period; j++) {
+        hh = Math.max(hh, highs[i - j]);
+        ll = Math.min(ll, lows[i - j]);
+      }
+      return (hh + ll) / 2;
+    }
+
+    const tenkan = [];
+    const kijun = [];
+    const senkouA = [];
+    const senkouB = [];
+    for (let i = 0; i < n; i++) {
+      const t = periodMid(9, i);
+      const k = periodMid(26, i);
+      tenkan.push(t);
+      kijun.push(k);
+      senkouA.push(t != null && k != null ? (t + k) / 2 : null);
+      senkouB.push(periodMid(52, i));
+    }
+    // Chikou (lagging span): close plotted 26 periods behind where it actually
+    // happened — i.e. chikou[i] = close[i+26], which naturally fits within
+    // the existing date range (no chart-side date extension needed, unlike
+    // the Senkou spans which project forward).
+    const chikou = closes.map((_, i) => (i + 26 < n ? closes[i + 26] : null));
+
+    return { tenkan, kijun, senkouA, senkouB, chikou };
+  }
+
   function bollinger(closes, period = 20, mult = 2) {
     const mid = sma(closes, period);
     const upper = new Array(closes.length).fill(null);
@@ -517,6 +556,7 @@ const Indicators = (() => {
     atr,
     stochastic,
     williamsR,
+    ichimoku,
     aggregateOHLC,
     riskMetrics,
     fibonacciLevels,

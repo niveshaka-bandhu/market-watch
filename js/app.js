@@ -11,6 +11,7 @@ const App = (() => {
     verdict: null,
     showBollinger: true,
     fibEnabled: false,
+    ichimokuEnabled: false,
     chartTimeframe: 'D',
     chartRange: 260,
     intradayInterval: null,
@@ -92,6 +93,93 @@ const App = (() => {
           : '') +
         '</div>';
     }
+  }
+
+  async function fetchPeerData(rawTicker) {
+    const res = await sheetsJsonp({ action: 'analyse', ticker: rawTicker });
+    if (!res || !res.ok || !res.data) throw new Error('No data for ' + rawTicker);
+    return res.data;
+  }
+
+  function peerMetricRows(entries) {
+    // entries: [{label, sheet}] — label is the display ticker, sheet is the raw analyse response
+    function row(label, getter, suffix) {
+      const cells = entries.map((e) => {
+        const v = getter(e.sheet);
+        return v != null ? fmt(v) + (suffix || '') : '—';
+      });
+      if (cells.every((c) => c === '—')) return '';
+      return '<tr><td>' + label + '</td>' + cells.map((c) => '<td>' + c + '</td>').join('') + '</tr>';
+    }
+    const sn = (s) => s.snapshot || {};
+    return [
+      row('Market Cap (₹ Cr.)', (s) => sn(s).marketCapCr, ''),
+      row('Current Price (₹)', (s) => sn(s).currentPrice, ''),
+      row('P/E', (s) => sn(s).stockPE, ''),
+      row('ROE (%)', (s) => sn(s).roe, '%'),
+      row('ROCE (%)', (s) => sn(s).roce, '%'),
+      row('Dividend Yield (%)', (s) => sn(s).dividendYield, '%'),
+      row('Sales Growth TTM (%)', (s) => s.salesGrowth && s.salesGrowth.ttm, '%'),
+      row('Profit Growth TTM (%)', (s) => s.profitGrowth && s.profitGrowth.ttm, '%'),
+      row('OPM TTM (%)', (s) => s.opmTtm, '%')
+    ]
+      .filter(Boolean)
+      .join('');
+  }
+
+  async function runPeerComparison() {
+    const host = $('#peer-comparison-result');
+    const btn = $('#peer-compare-btn');
+    if (!host) return;
+    if (!state.sheet || !state.rawInput) {
+      host.innerHTML = '<p style="font-size:12px;color:var(--text-muted)">Analyse a ticker first.</p>';
+      return;
+    }
+    const peer1 = ($('#peer-1').value || '').trim().toUpperCase();
+    const peer2 = ($('#peer-2').value || '').trim().toUpperCase();
+    const peerTickers = [peer1, peer2].filter(Boolean);
+    if (!peerTickers.length) {
+      host.innerHTML = '<p style="font-size:12px;color:var(--text-muted)">Enter at least one peer ticker.</p>';
+      return;
+    }
+
+    const entries = [{ label: state.rawInput, sheet: state.sheet }];
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = 'Comparing…';
+    }
+    host.innerHTML = '<p style="font-size:12px;color:var(--text-muted)">Fetching ' + peerTickers[0] + '…</p>';
+
+    // Sequential on purpose — the backend sheet can only hold one ticker's
+    // scrape at a time, so fetching peers one after another (not in
+    // parallel) respects that instead of racing against the server-side lock.
+    for (let idx = 0; idx < peerTickers.length; idx++) {
+      const t = peerTickers[idx];
+      try {
+        host.innerHTML =
+          '<p style="font-size:12px;color:var(--text-muted)">Fetching ' + t +
+          ' (' + (idx + 1) + '/' + peerTickers.length + ')…</p>';
+        const data = await fetchPeerData(t);
+        entries.push({ label: t, sheet: data });
+      } catch (e) {
+        console.warn('Peer fetch failed for', t, e);
+        entries.push({ label: t, sheet: {} });
+      }
+    }
+
+    const rows = peerMetricRows(entries);
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = 'Compare';
+    }
+    if (!rows) {
+      host.innerHTML = '<p style="font-size:12px;color:var(--text-muted)">No comparable data returned.</p>';
+      return;
+    }
+    host.innerHTML =
+      '<div style="overflow-x:auto"><table class="data-table"><thead><tr><th>Metric</th>' +
+      entries.map((e) => '<th>' + e.label + '</th>').join('') +
+      '</tr></thead><tbody>' + rows + '</tbody></table></div>';
   }
 
   async function generatePdfReport() {
@@ -1003,10 +1091,11 @@ const App = (() => {
     if (!state.df) return;
     const data = Indicators.aggregateOHLC(state.df, state.chartTimeframe);
     const fib = state.fibEnabled ? Indicators.fibonacciLevels(data, 130) : null;
+    const ichimokuData = state.ichimokuEnabled ? Indicators.ichimoku(data) : null;
     let daysToShow = state.chartRange;
     if (daysToShow && state.chartTimeframe === 'W') daysToShow = Math.ceil(daysToShow / 5);
     else if (daysToShow && state.chartTimeframe === 'M') daysToShow = Math.ceil(daysToShow / 21);
-    Charts.priceChart(data, state.showBollinger, fib, daysToShow, target);
+    Charts.priceChart(data, state.showBollinger, fib, daysToShow, target, ichimokuData);
   }
 
   async function loadIntradayChart(interval) {
@@ -1550,6 +1639,12 @@ const App = (() => {
     const intervalSel = $('#chart-interval');
     if (intervalSel) intervalSel.value = 'D';
     state.sheet = null;
+    const peer1El = $('#peer-1');
+    const peer2El = $('#peer-2');
+    const peerResultEl = $('#peer-comparison-result');
+    if (peer1El) peer1El.value = '';
+    if (peer2El) peer2El.value = '';
+    if (peerResultEl) peerResultEl.innerHTML = '';
     // Clear valuation calculator inputs so a stale value from the previous
     // ticker (or a failed first-load fallback) can never block this
     // ticker's auto-fill — see renderValuationWidgets' "!el.value" checks.
@@ -1601,6 +1696,17 @@ const App = (() => {
         Object.assign(verdictInfo, fibProximity(state.df));
         verdictInfo.candlePatterns = Indicators.detectCandlestickPatterns(state.df);
         verdictInfo.breakout = Indicators.detectBreakout(state.df, 20);
+        const ichi = Indicators.ichimoku(state.df);
+        if (ichi) {
+          const i = state.df.length - 1;
+          verdictInfo.ichimoku = {
+            price: state.df[i].close,
+            senkouA: ichi.senkouA[i - 26] != null ? ichi.senkouA[i - 26] : null,
+            senkouB: ichi.senkouB[i - 26] != null ? ichi.senkouB[i - 26] : null,
+            tenkan: ichi.tenkan[i],
+            kijun: ichi.kijun[i]
+          };
+        }
 
         state.verdict = VerdictEngine.analyse(state.df, verdictInfo);
       } else {
@@ -1803,6 +1909,14 @@ const App = (() => {
         state.fibEnabled = fib.checked;
         if (state.view === 'market') drawPriceChart();
       });
+    const ichi = $('#show-ichimoku');
+    if (ichi)
+      ichi.addEventListener('change', () => {
+        state.ichimokuEnabled = ichi.checked;
+        if (state.view === 'market') drawPriceChart();
+      });
+    const peerBtn = $('#peer-compare-btn');
+    if (peerBtn) peerBtn.addEventListener('click', runPeerComparison);
     const intervalSel = $('#chart-interval');
     if (intervalSel) {
       intervalSel.addEventListener('change', (e) => {
