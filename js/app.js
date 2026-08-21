@@ -75,8 +75,8 @@ const App = (() => {
     }
     const sn = d.snapshot || {};
     const parts = [];
-    if (sn.currentPrice != null) parts.push('₹' + fmt(sn.currentPrice));
-    if (sn.stockPE != null) parts.push('P/E ' + fmt(sn.stockPE));
+    if (sn.currentPrice != null) parts.push('LTP: ₹' + fmt(sn.currentPrice));
+    if (sn.stockPE != null) parts.push('P/E: ' + fmt(sn.stockPE));
     if (!parts.length) {
       group.style.display = 'none';
       return;
@@ -105,13 +105,10 @@ const App = (() => {
       cardIfPresent('ROE', sn.roe, '%'),
       cardIfPresent('Face Value', sn.faceValue != null ? '₹' + fmt(sn.faceValue) : null)
     ]);
-    if (d.ticker || d.about) {
+    if (d.about) {
       host.innerHTML +=
         '<div style="margin-top:12px">' +
-        (d.ticker ? '<h3>' + d.ticker + ' — Overview</h3>' : '') +
-        (d.about
-          ? '<p style="font-size:13px;color:var(--text-muted);line-height:1.5;margin:8px 0 0">' + d.about + '</p>'
-          : '') +
+        '<p style="font-size:13px;color:var(--text-muted);line-height:1.5;margin:8px 0 0">' + d.about + '</p>' +
         '</div>';
     }
   }
@@ -1602,7 +1599,6 @@ const App = (() => {
     renderCandlestickPatterns(state.df);
     renderRiskMetrics(state.df, state.sheet);
     renderMultiTimeframeConfluence();
-    renderVolumeProfile(state.df);
     renderVerdictHistory(state.rawInput);
     const piv = Indicators.pivots(last);
     $('#pivot-r2').textContent = formatINR(piv.r2);

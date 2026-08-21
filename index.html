@@ -48,13 +48,6 @@
         </div>
       </div>
 
-      <div class="control-group" id="sticky-quote-group" style="display:none;justify-content:center">
-        <label>&nbsp;</label>
-        <div id="sticky-quote" style="color:#fff;font-weight:700;font-size:14px;white-space:nowrap;display:flex;gap:14px">
-          <span>—</span>
-        </div>
-      </div>
-
       <div class="control-group stock-lookup" id="lookup-group" style="margin-left:auto;flex:1;min-width:280px;max-width:520px">
         <label class="lookup-label">STOCK LOOKUP</label>
         <div class="lookup-row">
@@ -63,6 +56,12 @@
             <div id="search-suggest" class="search-suggest" hidden></div>
           </div>
           <button type="button" id="analyse-btn" class="analyse-btn">Analyse</button>
+        </div>
+      </div>
+
+      <div class="control-group" id="sticky-quote-group" style="display:none;flex-basis:100%;justify-content:center;margin-top:2px">
+        <div id="sticky-quote" style="color:rgba(255,255,255,0.85);font-weight:400;font-size:12px;white-space:nowrap;display:flex;gap:14px">
+          <span>—</span>
         </div>
       </div>
     </div>
@@ -203,15 +202,6 @@
             Detected from the most recent candles — short-term signals, not a forecast.
           </p>
           <div id="candlestick-patterns"></div>
-        </div>
-
-        <div class="card" style="margin-bottom:20px">
-          <h3>📊 Volume Profile</h3>
-          <p style="font-size:12px;color:var(--text-muted);margin-bottom:10px">
-            Where trading volume concentrated by price level over the loaded history — the highlighted level (POC)
-            is the price with the heaviest historical activity, often acting as support/resistance.
-          </p>
-          <div id="volume-profile"></div>
         </div>
 
         <div class="card" style="margin-bottom:20px">

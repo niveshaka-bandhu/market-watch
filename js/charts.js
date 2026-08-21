@@ -168,6 +168,20 @@ const Charts = (() => {
       );
     }
 
+    // Volume subplot — bars colored to match each candle's direction, on a
+    // shared x-axis beneath the price panel (set up in the layout below).
+    const volColors = data.map((r) => (r.close >= r.open ? 'rgba(34,197,94,0.7)' : 'rgba(239,68,68,0.7)'));
+    traces.push({
+      type: 'bar',
+      x: dates,
+      y: data.map((r) => r.volume || 0),
+      name: 'Volume',
+      marker: { color: volColors },
+      xaxis: 'x2',
+      yaxis: 'y2',
+      showlegend: false
+    });
+
     const shapes = [];
     const annotations = [];
     if (fibLevels && fibLevels.length) {
@@ -219,14 +233,34 @@ const Charts = (() => {
         // empty weekend gaps — this is what made short histories (e.g. a
         // newly-listed stock with only a few weeks of data) look like they
         // spanned a much longer, near-empty range.
-        rangebreaks: [{ pattern: 'day of week', bounds: [6, 1] }]
+        rangebreaks: [{ pattern: 'day of week', bounds: [6, 1] }],
+        domain: [0, 1],
+        anchor: 'y',
+        showticklabels: false // date labels shown on xaxis2 (volume, bottom) instead
       },
       yaxis: {
         ...layoutBase.yaxis,
         title: 'Price (₹)',
         tickformat: ',.0f',
         hoverformat: ',.2f',
-        separatethousands: true
+        separatethousands: true,
+        domain: [0.24, 1]
+      },
+      xaxis2: {
+        ...layoutBase.xaxis,
+        type: 'date',
+        autorange: true,
+        rangebreaks: [{ pattern: 'day of week', bounds: [6, 1] }],
+        domain: [0, 1],
+        anchor: 'y2',
+        matches: 'x' // keeps volume panel synced to any zoom/pan on the price panel
+      },
+      yaxis2: {
+        gridcolor: layoutBase.xaxis.gridcolor,
+        linecolor: layoutBase.xaxis.linecolor,
+        side: 'right',
+        domain: [0, 0.18],
+        title: 'Vol'
       }
     };
 
