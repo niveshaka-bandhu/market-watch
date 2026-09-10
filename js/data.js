@@ -147,5 +147,11 @@ const DataService = (() => {
     }
   }
 
-  return { normalizeTicker, loadAll, fetchIntraday };
+  async function fetchBenchmarkHistory() {
+    const urls = chartUrls('^NSEI', '1d', '5y');
+    const attempts = urls.map((url) => fetchJson(url, 8000).then((json) => parseChart(json, false)));
+    return firstSuccess(attempts);
+  }
+
+  return { normalizeTicker, loadAll, fetchIntraday, fetchBenchmarkHistory };
 })();

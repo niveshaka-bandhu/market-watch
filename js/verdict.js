@@ -153,6 +153,14 @@ const VerdictEngine = (() => {
       });
     }
 
+    // RSI/MACD divergence
+    if (info.divergences && info.divergences.length) {
+      info.divergences.forEach((d) => {
+        if (d.type === 'bullish') bull.push(`${d.indicator} divergence: ${d.note}`);
+        else if (d.type === 'bearish') bear.push(`${d.indicator} divergence: ${d.note}`);
+      });
+    }
+
     // 20-day breakout/breakdown
     if (info.breakout) {
       if (info.breakout.type === 'breakout') bull.push(`Breakout: ${info.breakout.note}`);

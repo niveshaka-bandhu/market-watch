@@ -21,6 +21,25 @@ const App = (() => {
     sheet: null
   };
   let equityIndex = [];
+  let benchmarkDf = null;
+  let benchmarkFetchPromise = null;
+
+  function getBenchmarkDf() {
+    if (benchmarkDf) return Promise.resolve(benchmarkDf);
+    if (!benchmarkFetchPromise) {
+      benchmarkFetchPromise = DataService.fetchBenchmarkHistory()
+        .then((result) => {
+          benchmarkDf = Indicators.calculateAll(result.history);
+          return benchmarkDf;
+        })
+        .catch((e) => {
+          console.warn('Benchmark (Nifty 50) fetch failed', e);
+          benchmarkFetchPromise = null;
+          return null;
+        });
+    }
+    return benchmarkFetchPromise;
+  }
 
   const $ = (s) => document.querySelector(s);
   const $$ = (s) => document.querySelectorAll(s);
@@ -1211,6 +1230,7 @@ const App = (() => {
     if (!host) return;
     const patterns = Indicators.detectCandlestickPatterns(df);
     const breakout = Indicators.detectBreakout(df, 20);
+    const divergences = Indicators.detectDivergence(df, 40);
     const colorFor = { bullish: 'var(--green)', bearish: 'var(--red)', neutral: 'var(--text-muted)' };
     let html = '';
     if (breakout) {
@@ -1220,6 +1240,16 @@ const App = (() => {
         '<div style="font-weight:600;color:' + colorFor[signal] + '">' +
         (breakout.type === 'breakout' ? '20-Day Breakout' : '20-Day Breakdown') +
         '</div><div style="font-size:12.5px;color:var(--text-muted)">' + breakout.note + '</div></div>';
+    }
+    if (divergences.length) {
+      html += divergences
+        .map(
+          (d) =>
+            '<div style="margin-bottom:10px;padding-left:10px;border-left:3px solid ' + colorFor[d.type] + '">' +
+            '<div style="font-weight:600;color:' + colorFor[d.type] + '">' + d.indicator + ' Divergence (' + d.type + ')</div>' +
+            '<div style="font-size:12.5px;color:var(--text-muted)">' + d.note + '</div></div>'
+        )
+        .join('');
     }
     if (patterns.length) {
       html += patterns
@@ -1266,6 +1296,41 @@ const App = (() => {
     host.innerHTML = html || '<p style="font-size:12px;color:var(--text-muted)">Not enough price history for risk analytics.</p>';
 
     renderReturnProjection(df, sheet, m);
+    renderBetaCorrelation(df);
+  }
+
+  function renderBetaCorrelation(df) {
+    const host = $('#beta-correlation');
+    if (!host) return;
+    host.innerHTML = '<p style="font-size:12px;color:var(--text-muted)">Loading Nifty 50 benchmark…</p>';
+    getBenchmarkDf().then((benchDf) => {
+      // Guard against a stale response landing after the user has already
+      // switched to a different ticker.
+      if (state.df !== df) return;
+      if (!benchDf) {
+        host.innerHTML = '<p style="font-size:12px;color:var(--text-muted)">Benchmark data unavailable right now.</p>';
+        return;
+      }
+      const bc = Indicators.betaCorrelation(df, benchDf);
+      if (!bc || bc.beta == null) {
+        host.innerHTML = '<p style="font-size:12px;color:var(--text-muted)">Not enough overlapping history vs Nifty 50.</p>';
+        return;
+      }
+      function card(label, val, cls) {
+        return (
+          '<div class="metric-card"><div class="label">' + label + '</div>' +
+          '<div class="value" style="font-size:17px' + (cls ? ';' + cls : '') + '">' + val + '</div></div>'
+        );
+      }
+      const betaNote =
+        bc.beta > 1.2 ? 'More volatile than the market' : bc.beta < 0.8 ? 'Less volatile than the market' : 'Broadly tracks the market';
+      host.innerHTML =
+        '<div class="metrics-row">' +
+        card('Beta (vs Nifty 50)', bc.beta.toFixed(2)) +
+        card('Correlation', bc.correlation != null ? bc.correlation.toFixed(2) : '—') +
+        '</div>' +
+        '<p style="font-size:11.5px;color:var(--text-muted);margin-top:6px">' + betaNote + ' · based on ' + bc.sampleSize + ' overlapping trading days.</p>';
+    });
   }
 
   function renderReturnProjection(df, sheet, riskMetrics) {
@@ -1567,6 +1632,15 @@ const App = (() => {
       renderValuationWidgets(null);
       renderSheetDashboard(state.sheet);
       renderVerdictHistory(state.rawInput);
+      // On mobile, jump straight to the Fundamentals zone — the Home/Verdict
+      // zone has nothing to show here (bull/bear and the metrics row all
+      // depend on chart data that never loaded), while the actual growth/
+      // valuation/pros-cons content the "still available" message promises
+      // lives in the Fundamentals zone, which nothing was switching to.
+      showMobileZone('zone-fundamentals');
+      $$('.mnav-btn[data-nav]').forEach((b) => b.classList.remove('active'));
+      const fundNavBtn = document.querySelector('.mnav-btn[data-nav="fundamentals"]');
+      if (fundNavBtn) fundNavBtn.classList.add('active');
       return;
     }
     const last = v.latest;
@@ -1944,6 +2018,7 @@ const App = (() => {
         verdictInfo.riskMetrics = Indicators.riskMetrics(state.df);
         Object.assign(verdictInfo, fibProximity(state.df));
         verdictInfo.candlePatterns = Indicators.detectCandlestickPatterns(state.df);
+        verdictInfo.divergences = Indicators.detectDivergence(state.df, 40);
         verdictInfo.breakout = Indicators.detectBreakout(state.df, 20);
         const ichi = Indicators.ichimoku(state.df);
         if (ichi) {

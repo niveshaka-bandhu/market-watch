@@ -75,6 +75,96 @@ const Indicators = (() => {
     return { macd: macdLine, signal: signalLine, hist };
   }
 
+  function betaCorrelation(stockDf, benchmarkDf) {
+    if (!stockDf || !benchmarkDf) return null;
+    const benchMap = {};
+    benchmarkDf.forEach((r) => {
+      if (r.dailyReturn != null) benchMap[r.date] = r.dailyReturn;
+    });
+    const pairs = [];
+    stockDf.forEach((r) => {
+      if (r.dailyReturn != null && benchMap[r.date] != null) {
+        pairs.push([r.dailyReturn, benchMap[r.date]]); // [stock, market]
+      }
+    });
+    if (pairs.length < 30) return null;
+    const n = pairs.length;
+    const meanY = pairs.reduce((a, p) => a + p[0], 0) / n; // stock
+    const meanX = pairs.reduce((a, p) => a + p[1], 0) / n; // market
+    let covXY = 0;
+    let varX = 0;
+    let varY = 0;
+    pairs.forEach(([y, x]) => {
+      covXY += (x - meanX) * (y - meanY);
+      varX += (x - meanX) * (x - meanX);
+      varY += (y - meanY) * (y - meanY);
+    });
+    covXY /= n;
+    varX /= n;
+    varY /= n;
+    const beta = varX > 0 ? covXY / varX : null;
+    const correlation = varX > 0 && varY > 0 ? covXY / Math.sqrt(varX * varY) : null;
+    return { beta, correlation, sampleSize: n };
+  }
+
+  function detectDivergence(df, lookback) {
+    lookback = lookback || 40;
+    if (!df || df.length < lookback + 5) return [];
+    const window = df.slice(-lookback);
+    const results = [];
+
+    function findExtremes(arr, key, isHigher) {
+      const points = [];
+      for (let i = 2; i < arr.length - 2; i++) {
+        const v = arr[i][key];
+        if (v == null) continue;
+        const cmp = (a, b) => (isHigher ? a > b : a < b);
+        if (
+          cmp(v, arr[i - 1][key]) && cmp(v, arr[i - 2][key]) &&
+          cmp(v, arr[i + 1][key]) && cmp(v, arr[i + 2][key])
+        ) {
+          points.push({ value: v, rsi: arr[i].rsi, macdHist: arr[i].macdHist });
+        }
+      }
+      return points;
+    }
+
+    const highs = findExtremes(window, 'high', true);
+    const lows = findExtremes(window, 'low', false);
+
+    if (highs.length >= 2) {
+      const [prev, latest] = highs.slice(-2);
+      if (latest.value > prev.value && latest.rsi != null && prev.rsi != null && latest.rsi < prev.rsi) {
+        results.push({
+          type: 'bearish', indicator: 'RSI',
+          note: 'Price made a higher high while RSI made a lower high — momentum not confirming the new high.'
+        });
+      }
+      if (latest.value > prev.value && latest.macdHist != null && prev.macdHist != null && latest.macdHist < prev.macdHist) {
+        results.push({
+          type: 'bearish', indicator: 'MACD',
+          note: 'Price made a higher high while the MACD histogram weakened — momentum not confirming the new high.'
+        });
+      }
+    }
+    if (lows.length >= 2) {
+      const [prev, latest] = lows.slice(-2);
+      if (latest.value < prev.value && latest.rsi != null && prev.rsi != null && latest.rsi > prev.rsi) {
+        results.push({
+          type: 'bullish', indicator: 'RSI',
+          note: 'Price made a lower low while RSI made a higher low — selling momentum fading.'
+        });
+      }
+      if (latest.value < prev.value && latest.macdHist != null && prev.macdHist != null && latest.macdHist > prev.macdHist) {
+        results.push({
+          type: 'bullish', indicator: 'MACD',
+          note: 'Price made a lower low while the MACD histogram improved — selling momentum fading.'
+        });
+      }
+    }
+    return results;
+  }
+
   function volumeProfile(df, bins) {
     bins = bins || 24;
     if (!df || !df.length) return null;
@@ -592,6 +682,8 @@ const Indicators = (() => {
     williamsR,
     ichimoku,
     volumeProfile,
+    betaCorrelation,
+    detectDivergence,
     aggregateOHLC,
     riskMetrics,
     fibonacciLevels,
