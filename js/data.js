@@ -76,10 +76,7 @@ const DataService = (() => {
     // means up to N*7s before giving up. In parallel, worst case is ~7s
     // regardless of how many fallbacks we have, and we return as soon as the
     // first one succeeds.
-    const attempts = urls.map((url) =>
-      fetchJson(url, 8000).then((json) => parseChart(json, false))
-    );
-    return firstSuccess(attempts);
+    return raceSources(urls, (json) => parseChart(json, false));
   }
 
   // Yahoo enforces practical range limits per intraday interval — these are
@@ -90,10 +87,7 @@ const DataService = (() => {
   async function fetchIntraday(ticker, interval) {
     const range = INTRADAY_RANGE[interval] || '5d';
     const urls = chartUrls(ticker, interval, range);
-    const attempts = urls.map((url) =>
-      fetchJson(url, 8000).then((json) => parseChart(json, true))
-    );
-    return firstSuccess(attempts);
+    return raceSources(urls, (json) => parseChart(json, true));
   }
 
   function firstSuccess(promises) {
@@ -114,6 +108,30 @@ const DataService = (() => {
         });
       });
     });
+  }
+
+  // Races every direct/proxy URL for a chart request, logging each source's
+  // own failure as it happens (host + reason) instead of only surfacing the
+  // last one to fail once all of them are exhausted. Previously "Chart
+  // failed... Error: timeout" told you nothing about which of the 5 sources
+  // (2 direct, 3 proxies) actually failed or why — this makes that visible
+  // per-source in the console without changing the race/fallback behavior.
+  function raceSources(urls, parse) {
+    const attempts = urls.map((url) =>
+      fetchJson(url, 8000)
+        .then(parse)
+        .catch((e) => {
+          let host;
+          try {
+            host = new URL(url).host;
+          } catch (_) {
+            host = url;
+          }
+          console.warn('[chart source failed]', host, '-', (e && e.message) || e);
+          throw e;
+        })
+    );
+    return firstSuccess(attempts);
   }
 
   async function loadAll(ticker) {
@@ -149,8 +167,7 @@ const DataService = (() => {
 
   async function fetchBenchmarkHistory() {
     const urls = chartUrls('^NSEI', '1d', '5y');
-    const attempts = urls.map((url) => fetchJson(url, 8000).then((json) => parseChart(json, false)));
-    return firstSuccess(attempts);
+    return raceSources(urls, (json) => parseChart(json, false));
   }
 
   return { normalizeTicker, loadAll, fetchIntraday, fetchBenchmarkHistory };
