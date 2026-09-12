@@ -2104,7 +2104,7 @@ const App = (() => {
     const backHomeBtn = $('#mobile-back-home');
     if (backHomeBtn) backHomeBtn.style.display = view === 'quant' ? '' : 'none';
 
-    if (!state.df) return;
+    if (!state.df && !state.sheet) return;
     if (view === 'market') {
       show($('#view-market'));
       hide($('#view-quant'));
