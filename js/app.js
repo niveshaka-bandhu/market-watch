@@ -1,6 +1,10 @@
 // ========== PASTE YOUR APPS SCRIPT WEB APP URL HERE ==========
 const SHEETS_API = 'https://script.google.com/macros/s/AKfycbxgR0EC7xaqe9H0Wx9gG0pQcpl2Elb-Skoxz_Pz7wPA6N3zTckWQFyb_u6TFfFo7oux/exec';
 // ============================================================
+// Must exceed the Apps Script side's MAX_WAIT_MS (170s) — otherwise the
+// browser gives up on a slow IMPORTHTML scrape before the server does, and
+// the (eventually correct) response arrives too late to be used.
+const SHEETS_ANALYSE_TIMEOUT_MS = 185000;
 
 const App = (() => {
   let state = {
@@ -133,7 +137,7 @@ const App = (() => {
   }
 
   async function fetchPeerData(rawTicker) {
-    const res = await sheetsJsonp({ action: 'analyse', ticker: rawTicker });
+    const res = await sheetsJsonp({ action: 'analyse', ticker: rawTicker }, SHEETS_ANALYSE_TIMEOUT_MS);
     if (!res || !res.ok || !res.data) throw new Error('No data for ' + rawTicker);
     return res.data;
   }
@@ -512,7 +516,7 @@ const App = (() => {
   }
 
   // ---------- Sheets JSONP ----------
-  function sheetsJsonp(params) {
+  function sheetsJsonp(params, timeoutMs) {
     return new Promise((resolve, reject) => {
       const cb = 'cb_' + Date.now() + '_' + Math.floor(Math.random() * 1e6);
       const q = Object.keys(params)
@@ -522,7 +526,7 @@ const App = (() => {
       const t = setTimeout(() => {
         cleanup();
         reject(new Error('Sheets timeout'));
-      }, 60000);
+      }, timeoutMs || 60000);
       function cleanup() {
         clearTimeout(t);
         // Leave a harmless no-op in place instead of deleting the callback.
@@ -1945,6 +1949,45 @@ const App = (() => {
       : 'https://in.tradingview.com/';
   }
 
+  // Re-fetches Screener data for `raw` after a delay and re-applies it in
+  // place if the ticker on screen hasn't changed in the meantime. Used when
+  // the initial read failed or couldn't be confirmed stable, since slow
+  // IMPORTHTML tables often just need more real time to finish scraping.
+  // 25s delay is chosen to clear the backend's own 20s short-cache TTL for
+  // unstable reads, so the retry actually re-scrapes instead of replaying
+  // the same partial result.
+  function scheduleSheetRetry(raw, attemptsLeft) {
+    if (attemptsLeft <= 0) return;
+    setTimeout(async () => {
+      if (state.rawInput !== raw) return; // user moved on to another ticker
+      let res;
+      try {
+        res = await sheetsJsonp({ action: 'analyse', ticker: raw }, SHEETS_ANALYSE_TIMEOUT_MS);
+      } catch (e) {
+        console.warn('Sheet retry failed:', e);
+        scheduleSheetRetry(raw, attemptsLeft - 1);
+        return;
+      }
+      if (state.rawInput !== raw) return; // still guard after the await
+      if (!res || !res.ok || !res.data) {
+        scheduleSheetRetry(raw, attemptsLeft - 1);
+        return;
+      }
+      applySheet(res.data);
+      setWorkspace(state.view === 'market' ? 'market' : 'quant');
+      const box = $('#error-box');
+      if (state.sheet.stable) {
+        if (!state.df && box) {
+          box.textContent = 'Price chart unavailable. Fundamentals and valuation still available.';
+        } else {
+          hide(box);
+        }
+      } else {
+        scheduleSheetRetry(raw, attemptsLeft - 1);
+      }
+    }, 25000);
+  }
+
   async function loadTicker() {
     const raw = ($('#ticker-input').value || '').trim().toUpperCase();
     if (!raw) return;
@@ -1982,15 +2025,29 @@ const App = (() => {
     const loadMsg = $('#loading');
     if (loadMsg) loadMsg.innerHTML = '<div class="spinner"></div><div>Loading…</div>';
 
+    // Fundamentals can take up to ~3 minutes when several IMPORTHTML tables
+    // on the Screener sheet are slow to resolve — update the message over
+    // time so a long wait doesn't look like the page has frozen.
+    let loadSecs = 0;
+    const progressTimer = setInterval(() => {
+      loadSecs += 5;
+      if (loadMsg && loadSecs >= 15) {
+        loadMsg.innerHTML =
+          '<div class="spinner"></div><div>Still loading fundamentals… (' + loadSecs +
+          's) — some tickers take a couple of minutes.</div>';
+      }
+    }, 5000);
+
     try {
       // Parallel: Yahoo chart + Sheets Screener
       const chartPromise = DataService.loadAll(state.ticker);
-      const sheetPromise = sheetsJsonp({ action: 'analyse', ticker: raw }).catch((e) => {
+      const sheetPromise = sheetsJsonp({ action: 'analyse', ticker: raw }, SHEETS_ANALYSE_TIMEOUT_MS).catch((e) => {
         console.warn(e);
         return null;
       });
 
       const [chartRes, sheetRes] = await Promise.all([chartPromise, sheetPromise]);
+      clearInterval(progressTimer);
 
       state.info = chartRes.info || {};
 
@@ -2068,15 +2125,34 @@ const App = (() => {
 
       updateTvLink();
 
-      // Soft warning if chart missing but Screener OK
-      if (!state.df && state.sheet) {
+      // Warn if the chart is missing and/or the fundamentals read couldn't
+      // be confirmed stable (some IMPORTHTML tables may still be scraping).
+      const chartMissing = !state.df;
+      const sheetUnstable = !!(state.sheet && state.sheet.stable === false);
+      if (chartMissing || sheetUnstable) {
+        const parts = [];
+        if (chartMissing) parts.push('Price chart unavailable.');
+        if (sheetUnstable) {
+          parts.push('Some fundamentals may still be loading — refreshing automatically in the background.');
+        } else if (chartMissing) {
+          parts.push('Fundamentals and valuation still available.');
+        }
         const box = $('#error-box');
-        box.textContent =
-          'Price chart unavailable. Fundamentals and valuation still available.';
+        box.textContent = parts.join(' ');
         box.classList.remove('hidden');
         show(box);
       }
+
+      // If the sheet fetch failed outright, or came back but couldn't be
+      // confirmed stable within the server's own wait window, retry it in
+      // the background a couple of times rather than leaving the page stuck
+      // on a partial read — a slow IMPORTHTML scrape often just needs more
+      // real time, not a fresh request.
+      if (!state.sheet || sheetUnstable) {
+        scheduleSheetRetry(raw, 2);
+      }
     } catch (err) {
+      clearInterval(progressTimer);
       console.error(err);
       hide($('#loading'));
       const box = $('#error-box');
