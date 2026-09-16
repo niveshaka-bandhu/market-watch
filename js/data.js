@@ -2,6 +2,12 @@
  * Yahoo chart with CORS fallbacks. Fundamentals from Google Sheets.
  */
 const DataService = (() => {
+  // Optional: paste your own Cloudflare Worker URL here (see
+  // yahoo-cors-worker.js) for a dedicated CORS proxy that isn't shared with
+  // the public internet's traffic. Leave blank to rely on the public
+  // fallbacks only.
+  const YAHOO_PROXY_WORKER = ''; // e.g. 'https://yahoo-chart-proxy.you.workers.dev'
+
   function normalizeTicker(raw) {
     let t = (raw || '').toUpperCase().trim();
     if (!t) return null;
@@ -37,11 +43,17 @@ const DataService = (() => {
       'https://query1.finance.yahoo.com' + path,
       'https://query2.finance.yahoo.com' + path
     ];
-    const proxies = [
+    const proxies = [];
+    if (YAHOO_PROXY_WORKER) {
+      proxies.push(YAHOO_PROXY_WORKER + '?url=' + encodeURIComponent(direct[0]));
+    }
+    proxies.push(
       'https://api.allorigins.win/raw?url=' + encodeURIComponent(direct[0]),
-      'https://corsproxy.io/?' + encodeURIComponent(direct[0]),
-      'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(direct[0])
-    ];
+      'https://corsproxy.io/?' + encodeURIComponent(direct[0])
+      // api.codetabs.com removed — the service shut down permanently on
+      // June 30, 2026, so every request to it was a guaranteed failure
+      // burning one of the 5 race slots for nothing.
+    );
     return direct.concat(proxies);
   }
 
