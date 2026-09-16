@@ -495,6 +495,22 @@ td {
   font-size: 14px;
 }
 
+.retry-data-btn {
+  background: var(--surface-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  padding: 7px 14px;
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.retry-data-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
 .hidden {
   display: none !important;
 }
