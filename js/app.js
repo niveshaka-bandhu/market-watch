@@ -1949,40 +1949,160 @@ const App = (() => {
       : 'https://in.tradingview.com/';
   }
 
-  // Re-fetches Screener data for `raw` after a delay and re-applies it in
-  // place if the ticker on screen hasn't changed in the meantime. Used when
-  // the initial read failed or couldn't be confirmed stable, since slow
-  // IMPORTHTML tables often just need more real time to finish scraping.
-  // 25s delay is chosen to clear the backend's own 20s short-cache TTL for
-  // unstable reads, so the retry actually re-scrapes instead of replaying
-  // the same partial result.
+  // Runs the verdict/indicator pipeline against a DataService.loadAll()
+  // result and stores it on state. Shared by the initial load and by
+  // retryChart() so both paths compute the verdict identically. Returns
+  // true if a usable chart was found (>=30 bars), false otherwise.
+  function applyChartResult(chartRes) {
+    if (chartRes.history && chartRes.history.length >= 30) {
+      state.df = Indicators.calculateAll(chartRes.history);
+
+      // Merge in the advanced signals so the verdict engine can actually
+      // use them — previously the verdict ran before applySheet(), so it
+      // never saw fundamentals at all, only Yahoo's bare price info.
+      const verdictInfo = Object.assign({}, state.info);
+      if (state.sheet) {
+        const sn = state.sheet.snapshot || {};
+        const gf = grahamFormulaFairValue(state.sheet);
+        const lv = lynchFairValue(state.sheet);
+        verdictInfo.grahamFormulaValue = gf ? gf.value : null;
+        verdictInfo.lynchValue = lv ? lv.value : null;
+        verdictInfo.growthFloored = (gf && gf.floored) || (lv && lv.floored) || false;
+        verdictInfo.piotroski = piotroskiFScore(state.sheet);
+        verdictInfo.dupont = duPontAnalysis(state.sheet, sn);
+      }
+      verdictInfo.riskMetrics = Indicators.riskMetrics(state.df);
+      Object.assign(verdictInfo, fibProximity(state.df));
+      verdictInfo.candlePatterns = Indicators.detectCandlestickPatterns(state.df);
+      verdictInfo.divergences = Indicators.detectDivergence(state.df, 40);
+      verdictInfo.breakout = Indicators.detectBreakout(state.df, 20);
+      const ichi = Indicators.ichimoku(state.df);
+      if (ichi) {
+        const i = state.df.length - 1;
+        verdictInfo.ichimoku = {
+          price: state.df[i].close,
+          senkouA: ichi.senkouA[i - 26] != null ? ichi.senkouA[i - 26] : null,
+          senkouB: ichi.senkouB[i - 26] != null ? ichi.senkouB[i - 26] : null,
+          tenkan: ichi.tenkan[i],
+          kijun: ichi.kijun[i]
+        };
+      }
+
+      state.verdict = VerdictEngine.analyse(state.df, verdictInfo);
+      if (state.verdict && state.rawInput) {
+        saveVerdictHistoryEntry(state.rawInput, {
+          date: new Date().toISOString().slice(0, 10),
+          master: state.verdict.master,
+          bullRatio: state.verdict.bullRatio,
+          price: state.df[state.df.length - 1].close
+        });
+      }
+      return true;
+    }
+    state.df = null;
+    state.verdict = null;
+    return false;
+  }
+
+  // Central place that decides what the warning banner says and which
+  // retry button(s) it shows, based purely on current state. Called after
+  // the initial load and after every retry, so the UI always reflects
+  // reality: a chart-only retry button when fundamentals are fine, a
+  // fundamentals-only retry button when the chart is fine, no buttons (just
+  // a prompt to re-run Analyse) if both are missing, and nothing at all
+  // once both are healthy.
+  function renderDataWarning() {
+    const box = $('#error-box');
+    if (!box) return;
+    const chartMissing = !state.df;
+    const sheetMissing = !state.sheet;
+    const sheetUnstable = !!(state.sheet && state.sheet.stable === false);
+
+    if (!chartMissing && !sheetMissing && !sheetUnstable) {
+      hide(box);
+      return;
+    }
+
+    let message;
+    const buttons = [];
+    if (chartMissing && sheetMissing) {
+      message = 'Could not load the price chart or fundamentals. Try analysing again.';
+    } else if (chartMissing) {
+      message = 'Price chart unavailable. Fundamentals and valuation still available.';
+      buttons.push('<button type="button" id="retry-chart-btn" class="retry-data-btn">🔄 Retry Chart</button>');
+    } else {
+      message = sheetUnstable
+        ? 'Some fundamentals may still be loading.'
+        : 'Fundamentals unavailable. Price chart and technical verdict still available.';
+      buttons.push('<button type="button" id="retry-fundamentals-btn" class="retry-data-btn">🔄 Retry Fundamentals</button>');
+    }
+
+    box.innerHTML =
+      '<div>' + message + '</div>' +
+      (buttons.length
+        ? '<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">' + buttons.join('') + '</div>'
+        : '');
+    box.classList.remove('hidden');
+    show(box);
+
+    const retryChartBtn = $('#retry-chart-btn');
+    if (retryChartBtn) retryChartBtn.addEventListener('click', retryChart);
+    const retryFundBtn = $('#retry-fundamentals-btn');
+    if (retryFundBtn) retryFundBtn.addEventListener('click', () => retryFundamentals());
+  }
+
+  let chartRetryInFlight = false;
+  async function retryChart() {
+    if (chartRetryInFlight || !state.ticker) return false;
+    chartRetryInFlight = true;
+    const btn = $('#retry-chart-btn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Retrying…'; }
+    const chartRes = await DataService.loadAll(state.ticker);
+    state.info = chartRes.info || {};
+    const ok = applyChartResult(chartRes);
+    setWorkspace(state.view === 'market' ? 'market' : 'quant');
+    renderDataWarning();
+    chartRetryInFlight = false;
+    return ok;
+  }
+
+  let fundamentalsRetryInFlight = false;
+  async function retryFundamentals() {
+    if (fundamentalsRetryInFlight || !state.rawInput) return false;
+    fundamentalsRetryInFlight = true;
+    const btn = $('#retry-fundamentals-btn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Retrying…'; }
+    let ok = false;
+    try {
+      const res = await sheetsJsonp({ action: 'analyse', ticker: state.rawInput }, SHEETS_ANALYSE_TIMEOUT_MS);
+      if (res && res.ok && res.data) {
+        applySheet(res.data);
+        ok = true;
+      }
+    } catch (e) {
+      console.warn('Fundamentals retry failed:', e);
+    }
+    setWorkspace(state.view === 'market' ? 'market' : 'quant');
+    renderDataWarning();
+    fundamentalsRetryInFlight = false;
+    return ok;
+  }
+
+  // Auto-retries the fundamentals fetch in the background (no button press
+  // needed) when the initial read failed or couldn't be confirmed stable,
+  // since slow IMPORTHTML tables often just need more real time. 25s delay
+  // clears the backend's own 20s short-cache TTL for unstable reads, so
+  // this actually re-scrapes instead of replaying the same partial result.
+  // The manual "Retry Fundamentals" button (renderDataWarning) uses the
+  // same retryFundamentals() function, so a button click and an automatic
+  // retry never race each other or duplicate work.
   function scheduleSheetRetry(raw, attemptsLeft) {
     if (attemptsLeft <= 0) return;
     setTimeout(async () => {
       if (state.rawInput !== raw) return; // user moved on to another ticker
-      let res;
-      try {
-        res = await sheetsJsonp({ action: 'analyse', ticker: raw }, SHEETS_ANALYSE_TIMEOUT_MS);
-      } catch (e) {
-        console.warn('Sheet retry failed:', e);
-        scheduleSheetRetry(raw, attemptsLeft - 1);
-        return;
-      }
+      const ok = await retryFundamentals();
       if (state.rawInput !== raw) return; // still guard after the await
-      if (!res || !res.ok || !res.data) {
-        scheduleSheetRetry(raw, attemptsLeft - 1);
-        return;
-      }
-      applySheet(res.data);
-      setWorkspace(state.view === 'market' ? 'market' : 'quant');
-      const box = $('#error-box');
-      if (state.sheet.stable) {
-        if (!state.df && box) {
-          box.textContent = 'Price chart unavailable. Fundamentals and valuation still available.';
-        } else {
-          hide(box);
-        }
-      } else {
+      if (!ok || (state.sheet && state.sheet.stable === false)) {
         scheduleSheetRetry(raw, attemptsLeft - 1);
       }
     }, 25000);
@@ -2055,53 +2175,7 @@ const App = (() => {
         applySheet(sheetRes.data);
       }
 
-      if (chartRes.history && chartRes.history.length >= 30) {
-        state.df = Indicators.calculateAll(chartRes.history);
-
-        // Merge in the advanced signals so the verdict engine can actually
-        // use them — previously the verdict ran before applySheet(), so it
-        // never saw fundamentals at all, only Yahoo's bare price info.
-        const verdictInfo = Object.assign({}, state.info);
-        if (state.sheet) {
-          const sn = state.sheet.snapshot || {};
-          const gf = grahamFormulaFairValue(state.sheet);
-          const lv = lynchFairValue(state.sheet);
-          verdictInfo.grahamFormulaValue = gf ? gf.value : null;
-          verdictInfo.lynchValue = lv ? lv.value : null;
-          verdictInfo.growthFloored = (gf && gf.floored) || (lv && lv.floored) || false;
-          verdictInfo.piotroski = piotroskiFScore(state.sheet);
-          verdictInfo.dupont = duPontAnalysis(state.sheet, sn);
-        }
-        verdictInfo.riskMetrics = Indicators.riskMetrics(state.df);
-        Object.assign(verdictInfo, fibProximity(state.df));
-        verdictInfo.candlePatterns = Indicators.detectCandlestickPatterns(state.df);
-        verdictInfo.divergences = Indicators.detectDivergence(state.df, 40);
-        verdictInfo.breakout = Indicators.detectBreakout(state.df, 20);
-        const ichi = Indicators.ichimoku(state.df);
-        if (ichi) {
-          const i = state.df.length - 1;
-          verdictInfo.ichimoku = {
-            price: state.df[i].close,
-            senkouA: ichi.senkouA[i - 26] != null ? ichi.senkouA[i - 26] : null,
-            senkouB: ichi.senkouB[i - 26] != null ? ichi.senkouB[i - 26] : null,
-            tenkan: ichi.tenkan[i],
-            kijun: ichi.kijun[i]
-          };
-        }
-
-        state.verdict = VerdictEngine.analyse(state.df, verdictInfo);
-        if (state.verdict && state.rawInput) {
-          saveVerdictHistoryEntry(state.rawInput, {
-            date: new Date().toISOString().slice(0, 10),
-            master: state.verdict.master,
-            bullRatio: state.verdict.bullRatio,
-            price: state.df[state.df.length - 1].close
-          });
-        }
-      } else {
-        state.df = null;
-        state.verdict = null;
-      }
+      applyChartResult(chartRes);
 
       // If no chart and no sheet, hard fail
       if (!state.df && !(sheetRes && sheetRes.ok && sheetRes.data)) {
@@ -2125,29 +2199,18 @@ const App = (() => {
 
       updateTvLink();
 
-      // Warn if the chart is missing and/or the fundamentals read couldn't
-      // be confirmed stable (some IMPORTHTML tables may still be scraping).
-      const chartMissing = !state.df;
-      const sheetUnstable = !!(state.sheet && state.sheet.stable === false);
-      if (chartMissing || sheetUnstable) {
-        const parts = [];
-        if (chartMissing) parts.push('Price chart unavailable.');
-        if (sheetUnstable) {
-          parts.push('Some fundamentals may still be loading — refreshing automatically in the background.');
-        } else if (chartMissing) {
-          parts.push('Fundamentals and valuation still available.');
-        }
-        const box = $('#error-box');
-        box.textContent = parts.join(' ');
-        box.classList.remove('hidden');
-        show(box);
-      }
+      // Shows the "chart unavailable" / "fundamentals unavailable" banner
+      // with the appropriate single retry button, or nothing if both loaded.
+      renderDataWarning();
 
       // If the sheet fetch failed outright, or came back but couldn't be
       // confirmed stable within the server's own wait window, retry it in
       // the background a couple of times rather than leaving the page stuck
       // on a partial read — a slow IMPORTHTML scrape often just needs more
-      // real time, not a fresh request.
+      // real time, not a fresh request. The manual "Retry Fundamentals"
+      // button shown by renderDataWarning() calls the same function, so
+      // there's never a duplicate in-flight request.
+      const sheetUnstable = !!(state.sheet && state.sheet.stable === false);
       if (!state.sheet || sheetUnstable) {
         scheduleSheetRetry(raw, 2);
       }
