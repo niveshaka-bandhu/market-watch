@@ -905,6 +905,7 @@ const App = (() => {
         cardIfPresent('ROCE', d.roce, '%')
       ]) +
       '</div>' +
+      qualityMoatSection(d) +
       growthTable(g, pg, pc, roe) +
       duPontTable(dupont) +
       piotroskiTable(piotroski) +
@@ -939,6 +940,135 @@ const App = (() => {
     if (!row) return [];
     const nums = row.cells.map(parseNum).filter((v) => v != null);
     return nums.slice(-count);
+  }
+
+  // Full period-aligned trend for a labeled row — every already-scraped
+  // table (Shareholding Pattern, Ratios, Balance Sheet, etc.) carries several
+  // years/quarters of history, not just the latest value, so this reuses
+  // that instead of needing any new IMPORTHTML/IMPORTXML formula.
+  function trendRow(table, labelPart) {
+    const row = tableRow(table, labelPart);
+    if (!row || !table || !table.headers) return null;
+    const periods = [];
+    const values = [];
+    table.headers.forEach((h, i) => {
+      if (!h) return;
+      const v = parseNum(row.cells[i]);
+      if (v == null) return;
+      periods.push(h);
+      values.push(v);
+    });
+    if (values.length < 2) return null;
+    return { periods, values };
+  }
+
+  // Turns a trend into a labeled, colored verdict: is it rising, falling,
+  // or stable, and is that direction good or bad for this particular metric
+  // (rising debt is bad, rising promoter holding is good, etc.)?
+  function trendVerdict(label, tr, opts) {
+    if (!tr) return null;
+    const goodDirection = (opts && opts.goodDirection) || 'up';
+    const unit = (opts && opts.unit) || '%';
+    const first = tr.values[0];
+    const last = tr.values[tr.values.length - 1];
+    const delta = last - first;
+    const threshold = Math.max(Math.abs(first) * 0.02, 0.3); // ignore noise
+    let tag = 'Stable';
+    let good = null;
+    if (delta > threshold) {
+      tag = 'Rising';
+      good = goodDirection === 'up';
+    } else if (delta < -threshold) {
+      tag = 'Falling';
+      good = goodDirection === 'down';
+    }
+    const color = good == null ? 'var(--text-muted)' : good ? 'var(--green)' : 'var(--red)';
+    const arrow = tag === 'Rising' ? '▲' : tag === 'Falling' ? '▼' : '→';
+    return {
+      label, unit, tag, color, arrow, delta,
+      latest: last,
+      latestPeriod: tr.periods[tr.periods.length - 1],
+      since: tr.periods[0],
+      values: tr.values
+    };
+  }
+
+  // Tiny inline SVG sparkline — avoids pulling in a full Plotly chart
+  // container just to show a shape for 4-8 data points.
+  function sparklineSvg(values, color) {
+    if (!values || values.length < 2) return '';
+    const w = 100, h = 28, pad = 3;
+    const min = Math.min.apply(null, values);
+    const max = Math.max.apply(null, values);
+    const range = max - min || 1;
+    const step = (w - pad * 2) / (values.length - 1);
+    const pts = values
+      .map((v, i) => {
+        const x = pad + i * step;
+        const y = h - pad - ((v - min) / range) * (h - pad * 2);
+        return x.toFixed(1) + ',' + y.toFixed(1);
+      })
+      .join(' ');
+    return (
+      '<svg width="' + w + '" height="' + h + '" viewBox="0 0 ' + w + ' ' + h +
+      '" style="display:block"><polyline points="' + pts +
+      '" fill="none" stroke="' + color + '" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>'
+    );
+  }
+
+  // Quality & Moat Trends: pulls promoter/FII/DII holding, ROE/ROCE, and
+  // debt trends out of tables the app already scrapes, and surfaces the
+  // direction (rising/falling/stable) with a plain-language takeaway —
+  // the multi-period data was always there, just buried in raw tables at
+  // the bottom of the page where nobody reads it as a trend.
+  function qualityMoatSection(d) {
+    const t = d.tables || {};
+    const candidates = [
+      trendVerdict('Promoter Holding', trendRow(t.shareholding, 'promoter'), { goodDirection: 'up' }),
+      trendVerdict('FII Holding', trendRow(t.shareholding, 'fii'), { goodDirection: 'up' }),
+      trendVerdict('DII Holding', trendRow(t.shareholding, 'dii'), { goodDirection: 'up' }),
+      trendVerdict('Return on Equity', trendRow(t.ratios, 'return on equity') || trendRow(t.ratios, 'roe'), { goodDirection: 'up' }),
+      trendVerdict('ROCE', trendRow(t.ratios, 'roce'), { goodDirection: 'up' }),
+      trendVerdict('Borrowings (Debt)', trendRow(t.balanceSheet, 'borrowings'), { goodDirection: 'down', unit: ' Cr' })
+    ];
+    const rows = candidates.filter(Boolean);
+    if (!rows.length) return '';
+
+    const rowsHtml = rows
+      .map(
+        (r) =>
+          '<tr><td>' + r.label + '</td>' +
+          '<td>' + sparklineSvg(r.values, r.color === 'var(--text-muted)' ? 'var(--text-muted)' : r.color) + '</td>' +
+          '<td>' + fmt(r.latest, 2) + r.unit +
+          '<div style="font-size:10px;color:var(--text-muted)">' + r.latestPeriod + '</div></td>' +
+          '<td style="color:' + r.color + '">' + r.arrow + ' ' + r.tag +
+          '<div style="font-size:10px">' + (r.delta > 0 ? '+' : '') + fmt(r.delta, 2) + r.unit +
+          ' since ' + r.since + '</div></td></tr>'
+      )
+      .join('');
+
+    const takeaways = rows
+      .filter((r) => r.tag !== 'Stable' && r.color !== 'var(--text-muted)')
+      .map(
+        (r) =>
+          '<li>' + r.label + ' has been ' + r.tag.toLowerCase() + ' (' +
+          (r.delta > 0 ? '+' : '') + fmt(r.delta, 2) + r.unit + ' since ' + r.since + ') — ' +
+          (r.color === 'var(--green)' ? 'a positive sign' : 'worth watching') +
+          ' for a long-term holder.</li>'
+      )
+      .join('');
+
+    return (
+      '<div class="card" style="margin-top:14px;overflow-x:auto">' +
+      '<h3>Quality &amp; Moat Trends</h3>' +
+      '<p style="font-size:11.5px;color:var(--text-muted);margin-bottom:10px">' +
+      'Direction over the full period Screener reports, not just the latest snapshot.' +
+      '</p>' +
+      '<table class="data-table"><thead><tr><th>Metric</th><th>Trend</th><th>Latest</th><th>Direction</th></tr></thead>' +
+      '<tbody>' + rowsHtml + '</tbody></table>' +
+      (takeaways ? '<ul class="bull-list" style="margin-top:10px">' + takeaways + '</ul>' : '') +
+      '</div>'
+    );
   }
 
   function duPontAnalysis(d, sn) {
@@ -1782,6 +1912,60 @@ const App = (() => {
     if (plEpsEl && plGrowthEl) {
       plEpsEl.oninput = plGrowthEl.oninput = updateLynch;
       updateLynch();
+    }
+
+    // ---- Long-Term Compounding Calculator ----
+    const ccPriceEl = $('#cc-price');
+    const ccCagrEl = $('#cc-cagr');
+    const ccYearsEl = $('#cc-years');
+    const ccSipEl = $('#cc-sip');
+    if (ccPriceEl && ccCagrEl && ccYearsEl) {
+      if (!ccPriceEl.value) {
+        if (info.currentPrice != null) ccPriceEl.value = Number(info.currentPrice).toFixed(2);
+        else if (d.snapshot && d.snapshot.currentPrice != null) {
+          ccPriceEl.value = Number(d.snapshot.currentPrice).toFixed(2);
+        }
+      }
+      if (!ccCagrEl.value) {
+        const pc = d.priceCagr || {};
+        ccCagrEl.value = pc.y5 != null ? pc.y5 : pc.y3 != null ? pc.y3 : defaultGrowth;
+      }
+
+      function updateCompounding() {
+        const price = parseFloat(ccPriceEl.value) || 0;
+        const cagr = parseFloat(ccCagrEl.value) || 0;
+        const years = parseFloat(ccYearsEl.value) || 0;
+        const sip = parseFloat((ccSipEl && ccSipEl.value) || '') || 0;
+        const resultEl = $('#cc-result');
+        if (!resultEl) return;
+        if (price <= 0 || years <= 0) {
+          resultEl.textContent = 'Enter current price and years';
+          return;
+        }
+        const r = cagr / 100;
+        const lumpsumFv = price * Math.pow(1 + r, years);
+        let html =
+          'Lumpsum ₹' + fmt(price, 2) + ' → <strong>' + formatINR(lumpsumFv) +
+          '</strong> in ' + years + ' yrs (at ' + cagr + '% CAGR)';
+
+        if (sip > 0) {
+          // Standard SIP future-value formula, compounded monthly.
+          const monthlyR = Math.pow(1 + r, 1 / 12) - 1;
+          const n = years * 12;
+          const sipFv =
+            monthlyR > 0
+              ? sip * ((Math.pow(1 + monthlyR, n) - 1) / monthlyR) * (1 + monthlyR)
+              : sip * n;
+          const invested = sip * n;
+          html +=
+            '<br>SIP ₹' + fmt(sip, 0) + '/month → <strong>' + formatINR(sipFv) +
+            '</strong> (invested ' + formatINR(invested) + ')';
+        }
+        resultEl.innerHTML = html;
+      }
+      ccPriceEl.oninput = ccCagrEl.oninput = ccYearsEl.oninput = updateCompounding;
+      if (ccSipEl) ccSipEl.oninput = updateCompounding;
+      updateCompounding();
     }
 
     const note = $('#fundamentals-note');
