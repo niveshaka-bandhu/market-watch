@@ -6,7 +6,7 @@ const DataService = (() => {
   // yahoo-cors-worker.js) for a dedicated CORS proxy that isn't shared with
   // the public internet's traffic. Leave blank to rely on the public
   // fallbacks only.
-  const YAHOO_PROXY_WORKER = ''; // e.g. 'https://yahoo-chart-proxy.vritramitra.workers.dev/'
+  const YAHOO_PROXY_WORKER = 'https://yahoo-chart-proxy.vritramitra.workers.dev/';
 
   function normalizeTicker(raw) {
     let t = (raw || '').toUpperCase().trim();
