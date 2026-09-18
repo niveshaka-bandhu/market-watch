@@ -325,8 +325,14 @@ const App = (() => {
       y += 8;
     }
 
+    if (state.bottomLine) {
+      heading('BOTTOM LINE: ' + state.bottomLine.action, 14);
+      para(state.bottomLine.reason);
+      y += 6;
+    }
+
     if (state.verdict) {
-      heading('Verdict: ' + state.verdict.master, 13);
+      heading('Master Verdict: ' + state.verdict.master, 13);
       para(state.verdict.summary);
       y += 6;
       if (state.verdict.bull.length) {
@@ -339,6 +345,16 @@ const App = (() => {
         bulletList(state.verdict.bear, [200, 40, 40]);
         y += 6;
       }
+    }
+
+    const extraVerdictLines = [];
+    if (state.longTermVerdict) extraVerdictLines.push('Long-Term Investment: ' + state.longTermVerdict.verdict);
+    if (state.riskVerdict) extraVerdictLines.push('Risk Level: ' + state.riskVerdict.level);
+    if (state.valuationVerdict) extraVerdictLines.push('Valuation: ' + state.valuationVerdict.tag);
+    if (extraVerdictLines.length) {
+      heading('Additional Verdicts', 12);
+      para(extraVerdictLines.join('    |    '));
+      y += 8;
     }
 
     // ===================== CHART ANALYSIS =====================
@@ -462,6 +478,43 @@ const App = (() => {
       y += 8;
     }
 
+    const pdfQualityTrends = [
+      trendVerdict('Promoter Holding', trendRow((d.tables || {}).shareholding, 'promoter'), { goodDirection: 'up' }),
+      trendVerdict('FII Holding', trendRow((d.tables || {}).shareholding, 'fii'), { goodDirection: 'up' }),
+      trendVerdict('DII Holding', trendRow((d.tables || {}).shareholding, 'dii'), { goodDirection: 'up' }),
+      trendVerdict('Return on Equity', trendRow((d.tables || {}).ratios, 'return on equity') || trendRow((d.tables || {}).ratios, 'roe'), { goodDirection: 'up' }),
+      trendVerdict('ROCE', trendRow((d.tables || {}).ratios, 'roce'), { goodDirection: 'up' }),
+      trendVerdict('Borrowings (Debt)', trendRow((d.tables || {}).balanceSheet, 'borrowings'), { goodDirection: 'down', unit: ' Cr' })
+    ].filter(Boolean);
+    if (pdfQualityTrends.length) {
+      heading('Quality & Moat Trends', 12);
+      const trendLines = pdfQualityTrends.map(
+        (r) => r.label + ': ' + fmt(r.latest, 2) + r.unit + ' — ' + r.tag +
+          ' (' + (r.delta > 0 ? '+' : '') + fmt(r.delta, 2) + r.unit + ' since ' + r.since + ')'
+      );
+      para(trendLines.join('\n'));
+      y += 8;
+    }
+
+    const pdfDupont = duPontAnalysis(d, sn2);
+    const altman = altmanZScore(d, sn2);
+    const acq = acquirersMultiple(d, sn2);
+    const magicYield = magicFormulaYield(d, sn2);
+    const rw = roicVsWacc(d);
+    const r40 = ruleOf40(d, pdfDupont);
+    const modelLines = [];
+    if (altman) modelLines.push('Altman Z-Score: ' + altman.z.toFixed(2) + ' (' + altman.zone + ')');
+    if (acq) modelLines.push("Acquirer's Multiple: " + acq.multiple.toFixed(2) + 'x' + (acq.cheap ? ' (deep-value range)' : ''));
+    if (magicYield != null) modelLines.push('Magic Formula Yield: ' + magicYield.toFixed(2) + '%');
+    if (rw) modelLines.push('ROIC vs WACC: ' + rw.roic.toFixed(1) + '% vs ' + rw.wacc.toFixed(1) + '% (' + (rw.creatingValue ? 'creating value' : 'destroying value') + ')');
+    if (r40) modelLines.push('Rule of 40: ' + r40.score.toFixed(1) + '%' + (r40.healthy ? ' (healthy)' : ''));
+    if (modelLines.length) {
+      heading('Advanced Financial Models', 12);
+      para(modelLines.join('\n'));
+      para('Altman Z-Score approximates working capital and is designed for non-financial companies; ROIC/WACC assumes Beta = 1.', 8);
+      y += 8;
+    }
+
     if (state.df) {
       const rm = Indicators.riskMetrics(state.df);
       const wk52 = Indicators.week52Range(state.df);
@@ -513,6 +566,76 @@ const App = (() => {
     );
 
     return doc;
+  }
+
+  // WhatsApp-friendly text report — WhatsApp renders *text* as bold and
+  // _text_ as italic natively, so this uses that instead of any real
+  // markup. Kept deliberately shorter than the PDF (top 3 bull/bear points,
+  // not the full lists) since a wall of text defeats the point of choosing
+  // text over a PDF in the first place.
+  function generateTextReport() {
+    const ticker = state.rawInput || state.ticker || 'Stock';
+    const d = state.sheet || {};
+    const sn2 = d.snapshot || {};
+    const lines = [];
+
+    lines.push('*' + ticker + ' — Analysis Report*');
+    lines.push('_Generated ' + new Date().toLocaleDateString('en-IN') + '_');
+    lines.push('');
+
+    if (state.bottomLine) {
+      lines.push('🎯 *Bottom Line:* ' + state.bottomLine.action);
+      lines.push(state.bottomLine.reason);
+      lines.push('');
+    }
+
+    const verdictLine = [];
+    if (state.verdict) verdictLine.push('*Verdict:* ' + state.verdict.master + ' (' + (state.verdict.bullRatio * 100).toFixed(0) + '% bullish)');
+    if (state.longTermVerdict) verdictLine.push('*Long-Term:* ' + state.longTermVerdict.verdict);
+    if (state.riskVerdict) verdictLine.push('*Risk:* ' + state.riskVerdict.level);
+    if (state.valuationVerdict) verdictLine.push('*Valuation:* ' + state.valuationVerdict.tag);
+    if (verdictLine.length) {
+      lines.push(verdictLine.join('\n'));
+      lines.push('');
+    }
+
+    const infoBits = [];
+    if (sn2.marketCapCr != null) infoBits.push('MCap ₹' + fmt(sn2.marketCapCr, 0) + 'Cr');
+    if (sn2.currentPrice != null) infoBits.push('Price ₹' + fmt(sn2.currentPrice));
+    if (sn2.stockPE != null) infoBits.push('P/E ' + fmt(sn2.stockPE));
+    if (sn2.roe != null) infoBits.push('ROE ' + sn2.roe + '%');
+    if (sn2.roce != null) infoBits.push('ROCE ' + sn2.roce + '%');
+    if (infoBits.length) {
+      lines.push('💰 *Company Info*');
+      lines.push(infoBits.join(' | '));
+      lines.push('');
+    }
+
+    if (state.verdict && state.verdict.bull.length) {
+      lines.push('✅ *Positive Drivers*');
+      state.verdict.bull.slice(0, 3).forEach((b) => lines.push('• ' + b));
+      lines.push('');
+    }
+    if (state.verdict && state.verdict.bear.length) {
+      lines.push('⚠️ *Risk Warnings*');
+      state.verdict.bear.slice(0, 3).forEach((b) => lines.push('• ' + b));
+      lines.push('');
+    }
+
+    const trends = [
+      trendVerdict('Promoter Holding', trendRow((d.tables || {}).shareholding, 'promoter'), { goodDirection: 'up' }),
+      trendVerdict('ROE', trendRow((d.tables || {}).ratios, 'return on equity') || trendRow((d.tables || {}).ratios, 'roe'), { goodDirection: 'up' }),
+      trendVerdict('ROCE', trendRow((d.tables || {}).ratios, 'roce'), { goodDirection: 'up' }),
+      trendVerdict('Debt', trendRow((d.tables || {}).balanceSheet, 'borrowings'), { goodDirection: 'down', unit: ' Cr' })
+    ].filter(Boolean);
+    if (trends.length) {
+      lines.push('📊 *Quality Trends*');
+      trends.forEach((r) => lines.push(r.label + ': ' + fmt(r.latest, 2) + r.unit + ' (' + r.tag + ')'));
+      lines.push('');
+    }
+
+    lines.push('_Not investment advice. Verify independently before deciding._');
+    return lines.join('\n');
   }
 
   // ---------- Sheets JSONP ----------
@@ -2879,29 +3002,15 @@ const App = (() => {
         shareBtn.disabled = true;
         shareBtn.textContent = 'Preparing…';
         try {
-          const doc = await generatePdfReport();
-          if (!doc) return;
-          const filename = (state.rawInput || 'report') + '-quant-verdict.pdf';
-          const blob = doc.output('blob');
-          const file = new File([blob], filename, { type: 'application/pdf' });
-          if (navigator.canShare && navigator.canShare({ files: [file] })) {
-            await navigator.share({
-              files: [file],
-              title: (state.rawInput || 'Stock') + ' Analysis Report',
-              text: 'Quant Verdict analysis for ' + (state.rawInput || '')
-            });
-          } else if (navigator.share) {
-            // Some browsers support share() for text/url but not files — still
-            // give them the actual PDF via download since it can't be attached.
-            doc.save(filename);
-            await navigator.share({
-              title: (state.rawInput || 'Stock') + ' Analysis Report',
-              text: 'Quant Verdict analysis for ' + (state.rawInput || ''),
-              url: location.href
-            });
+          const text = generateTextReport();
+          const title = (state.rawInput || 'Stock') + ' Analysis Report';
+          if (navigator.share) {
+            await navigator.share({ title, text });
+          } else if (navigator.clipboard && navigator.clipboard.writeText) {
+            await navigator.clipboard.writeText(text);
+            alert('Sharing isn\'t supported in this browser — report copied to clipboard, paste it into WhatsApp.');
           } else {
-            doc.save(filename);
-            alert("Sharing isn't supported in this browser — downloaded the PDF instead.");
+            alert("Couldn't share or copy automatically — this browser supports neither.");
           }
         } catch (e) {
           if (e && e.name !== 'AbortError') {
