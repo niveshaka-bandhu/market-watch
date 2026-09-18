@@ -292,6 +292,21 @@ const VerdictEngine = (() => {
       });
     }
 
+    if (info.altman) {
+      if (info.altman.zone === 'Distress Zone') bear.push('Altman Z-Score of ' + info.altman.z.toFixed(2) + ' falls in the Distress Zone — elevated bankruptcy-risk signal.');
+      else if (info.altman.zone === 'Safe Zone') bull.push('Altman Z-Score of ' + info.altman.z.toFixed(2) + ' falls in the Safe Zone.');
+    }
+    if (info.roicWacc) {
+      if (info.roicWacc.creatingValue) bull.push('ROIC (' + info.roicWacc.roic.toFixed(1) + '%) exceeds WACC (' + info.roicWacc.wacc.toFixed(1) + '%) — the business is creating shareholder value.');
+      else bear.push('ROIC (' + info.roicWacc.roic.toFixed(1) + '%) is below WACC (' + info.roicWacc.wacc.toFixed(1) + '%) — capital may be earning less than its cost.');
+    }
+    if (info.ruleOf40) {
+      if (info.ruleOf40.healthy) bull.push('Rule of 40 score of ' + info.ruleOf40.score.toFixed(1) + '% — growth and profitability are scaling in a healthy balance.');
+    }
+    if (info.acquirersMultiple && info.acquirersMultiple.cheap) {
+      bull.push("Acquirer's Multiple of " + info.acquirersMultiple.multiple.toFixed(2) + 'x is in classic deep-value territory.');
+    }
+
     const total = bull.length + bear.length;
     if (total === 0) return null; // not enough fundamental data to say anything
     const bullRatio = bull.length / total;
@@ -353,6 +368,12 @@ const VerdictEngine = (() => {
       else if (de <= 50) reasons.push('Low leverage reduces balance-sheet risk.');
     }
 
+    if (info.altman) {
+      checks++;
+      if (info.altman.zone === 'Distress Zone') { score++; reasons.push('Altman Z-Score sits in the Distress Zone — elevated bankruptcy-risk signal.'); }
+      else if (info.altman.zone === 'Safe Zone') reasons.push('Altman Z-Score sits in the Safe Zone.');
+    }
+
     if (!checks) return null;
     const riskRatio = score / checks;
     let level, cssClass;
@@ -400,6 +421,11 @@ const VerdictEngine = (() => {
       if (info.fcfYield > 6) { score++; reasons.push('FCF yield of ' + info.fcfYield.toFixed(1) + '% is attractive.'); }
       else if (info.fcfYield < 0) { score--; reasons.push('Negative free cash flow yield.'); }
       else if (info.fcfYield < 1.5) { score--; reasons.push('FCF yield of only ' + info.fcfYield.toFixed(1) + '% is thin.'); }
+    }
+    if (info.magicFormulaYield != null) {
+      checks++;
+      if (info.magicFormulaYield > 12) { score++; reasons.push('Magic Formula earnings yield of ' + info.magicFormulaYield.toFixed(1) + '% is attractive.'); }
+      else if (info.magicFormulaYield < 5) { score--; reasons.push('Magic Formula earnings yield of only ' + info.magicFormulaYield.toFixed(1) + '% is low.'); }
     }
 
     if (!checks) return null;
