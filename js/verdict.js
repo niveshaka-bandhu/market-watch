@@ -219,5 +219,198 @@ const VerdictEngine = (() => {
     };
   }
 
-  return { analyse };
+  // ---------------- Long-Term Investment Verdict ----------------
+  // Fundamentals + quality-trend only — deliberately excludes RSI, MACD,
+  // candlesticks, Bollinger, Ichimoku, breakout/divergence, and every other
+  // short-term technical signal in analyse() above, so a stock's long-term
+  // case isn't diluted or masked by this week's price action.
+  function analyseLongTerm(info) {
+    const bull = [];
+    const bear = [];
+    const price = info.price;
+
+    const roe = info.returnOnEquity;
+    if (roe != null) {
+      if (roe >= 0.15) bull.push('ROE of ' + (roe * 100).toFixed(1) + '% clears a strong long-term efficiency bar.');
+      else if (roe < 0.10) bear.push('ROE of ' + (roe * 100).toFixed(1) + '% is below what durable compounders typically sustain.');
+    }
+
+    const opMargin = info.operatingMargins;
+    if (opMargin != null && opMargin > 0.12) {
+      bull.push('Operating margin of ' + (opMargin * 100).toFixed(1) + '% suggests durable pricing power.');
+    }
+
+    const de = info.debtToEquity;
+    if (de != null) {
+      if (de > 150) bear.push('Debt-to-Equity of ' + (de / 100).toFixed(2) + ' adds balance-sheet risk over a long holding period.');
+      else if (de <= 100) bull.push('Conservative balance sheet — low leverage reduces long-term downside risk.');
+    }
+
+    if (info.trailingEps > 0 && info.bookValue > 0 && price > 0) {
+      const graham = Math.sqrt(22.5 * info.trailingEps * info.bookValue);
+      if (price < graham) {
+        bull.push('Trading below Graham Number with a ' + (((graham - price) / graham) * 100).toFixed(1) + '% margin of safety.');
+      } else if (price > graham * 1.4) {
+        bear.push('Trading well above Graham Number — limited margin of safety for a fresh long-term entry.');
+      }
+    }
+    if (info.grahamFormulaValue != null && price > 0) {
+      const gap = ((info.grahamFormulaValue - price) / price) * 100;
+      if (gap > 20) bull.push('Trading ' + gap.toFixed(1) + '% below Graham Formula fair value.');
+      else if (gap < -30) bear.push('Trading ' + Math.abs(gap).toFixed(1) + '% above Graham Formula fair value.');
+    }
+    if (info.lynchValue != null && price > 0) {
+      const gap = ((info.lynchValue - price) / price) * 100;
+      if (gap > 20) bull.push('Trading ' + gap.toFixed(1) + '% below Peter Lynch fair value estimate.');
+      else if (gap < -30) bear.push('Trading ' + Math.abs(gap).toFixed(1) + '% above Peter Lynch fair value estimate.');
+    }
+    if (info.growthFloored) {
+      bear.push('TTM growth is negative — the fair-value estimates above use a conservative 5% floor rather than the real trend.');
+    }
+
+    if (info.piotroski && info.piotroski.max >= 5) {
+      const ratio = info.piotroski.score / info.piotroski.max;
+      if (ratio >= 0.75) bull.push('Piotroski F-Score ' + info.piotroski.score + '/' + info.piotroski.max + ' — strong fundamental checklist for a long-term hold.');
+      else if (ratio <= 0.35) bear.push('Piotroski F-Score ' + info.piotroski.score + '/' + info.piotroski.max + ' — weak fundamental checklist.');
+    }
+
+    if (info.dupont) {
+      if (info.dupont.equityMultiplier > 3 && info.dupont.netMargin < 8) {
+        bear.push('ROE looks leverage-driven rather than operationally strong — lower quality of returns for a long-term hold.');
+      } else if (info.dupont.netMargin > 15 && info.dupont.equityMultiplier < 2.5) {
+        bull.push('ROE is margin-driven with modest leverage — healthier quality of returns.');
+      }
+    }
+
+    if (info.qualityTrends && info.qualityTrends.length) {
+      info.qualityTrends.forEach((t) => {
+        if (t.color === 'var(--green)') {
+          bull.push(t.label + ' has been ' + t.tag.toLowerCase() + ' since ' + t.since + ' — a positive long-term signal.');
+        } else if (t.color === 'var(--red)') {
+          bear.push(t.label + ' has been ' + t.tag.toLowerCase() + ' since ' + t.since + ' — worth monitoring.');
+        }
+      });
+    }
+
+    const total = bull.length + bear.length;
+    if (total === 0) return null; // not enough fundamental data to say anything
+    const bullRatio = bull.length / total;
+
+    let verdict, cssClass, summary;
+    if (bullRatio >= 0.7) {
+      verdict = 'LONG-TERM BUY';
+      cssClass = 'strong-buy';
+      summary = 'Fundamentals, valuation, and quality trends line up well for a long-term hold, independent of short-term price action.';
+    } else if (bullRatio >= 0.5) {
+      verdict = 'ACCUMULATE / HOLD';
+      cssClass = 'mild-buy';
+      summary = 'Net positive long-term case, but not uniformly — some fundamentals or trends warrant continued monitoring.';
+    } else if (bullRatio >= 0.3) {
+      verdict = 'HOLD / WATCH';
+      cssClass = 'neutral';
+      summary = 'Mixed fundamental picture — neither a clear long-term buy nor a clear reason to exit.';
+    } else {
+      verdict = 'AVOID / REDUCE';
+      cssClass = 'sell';
+      summary = 'Weak fundamentals, deteriorating quality trends, or rich valuation outweigh the positives for a long-term hold.';
+    }
+
+    return { bull, bear, bullRatio, verdict, cssClass, summary };
+  }
+
+  // ---------------- Risk Level Verdict ----------------
+  // A plain Low/Medium/High tag, independent of buy/sell direction — useful
+  // for position sizing regardless of how bullish or bearish the other
+  // verdicts read. Works even without price history (debt alone), so it
+  // still has something to say in Screener-only fallback mode.
+  function riskLevel(info) {
+    const reasons = [];
+    let score = 0; // higher = riskier
+    let checks = 0;
+
+    const rm = info.riskMetrics;
+    if (rm) {
+      if (rm.annualVol != null) {
+        checks++;
+        if (rm.annualVol > 45) { score++; reasons.push('Annualized volatility of ' + rm.annualVol.toFixed(1) + '% is high.'); }
+        else if (rm.annualVol < 25) reasons.push('Annualized volatility of ' + rm.annualVol.toFixed(1) + '% is relatively contained.');
+      }
+      if (rm.maxDrawdown != null) {
+        checks++;
+        if (rm.maxDrawdown <= -40) { score++; reasons.push('Historical max drawdown of ' + rm.maxDrawdown.toFixed(1) + '% shows this can fall sharply.'); }
+        else if (rm.maxDrawdown > -20) reasons.push('Max drawdown of ' + rm.maxDrawdown.toFixed(1) + '% has been comparatively mild.');
+      }
+      if (rm.sharpe != null) {
+        checks++;
+        if (rm.sharpe < 0) { score++; reasons.push('Negative Sharpe ratio — returns have not compensated for the volatility taken.'); }
+      }
+    }
+
+    const de = info.debtToEquity;
+    if (de != null) {
+      checks++;
+      if (de > 150) { score++; reasons.push('Debt-to-Equity of ' + (de / 100).toFixed(2) + ' adds balance-sheet risk.'); }
+      else if (de <= 50) reasons.push('Low leverage reduces balance-sheet risk.');
+    }
+
+    if (!checks) return null;
+    const riskRatio = score / checks;
+    let level, cssClass;
+    if (riskRatio >= 0.6) { level = 'High'; cssClass = 'sell'; }
+    else if (riskRatio >= 0.3) { level = 'Medium'; cssClass = 'mild-buy'; }
+    else { level = 'Low'; cssClass = 'strong-buy'; }
+
+    return { level, cssClass, reasons };
+  }
+
+  // ---------------- Valuation Verdict ----------------
+  // Cheap / Fair / Expensive, isolated from technicals and quality trends
+  // entirely, from Graham/Lynch/Graham-Number gaps plus PEG and FCF yield.
+  function valuationVerdict(info) {
+    const reasons = [];
+    let score = 0; // positive = cheap, negative = expensive
+    let checks = 0;
+    const price = info.price;
+
+    if (info.trailingEps > 0 && info.bookValue > 0 && price > 0) {
+      checks++;
+      const graham = Math.sqrt(22.5 * info.trailingEps * info.bookValue);
+      if (price < graham) { score++; reasons.push('Trading below Graham Number (' + (((graham - price) / graham) * 100).toFixed(1) + '% margin of safety).'); }
+      else if (price > graham * 1.4) { score--; reasons.push('Trading well above Graham Number.'); }
+    }
+    if (info.grahamFormulaValue != null && price > 0) {
+      checks++;
+      const gap = ((info.grahamFormulaValue - price) / price) * 100;
+      if (gap > 20) { score++; reasons.push(gap.toFixed(1) + '% below Graham Formula fair value.'); }
+      else if (gap < -30) { score--; reasons.push(Math.abs(gap).toFixed(1) + '% above Graham Formula fair value.'); }
+    }
+    if (info.lynchValue != null && price > 0) {
+      checks++;
+      const gap = ((info.lynchValue - price) / price) * 100;
+      if (gap > 20) { score++; reasons.push(gap.toFixed(1) + '% below Peter Lynch fair value.'); }
+      else if (gap < -30) { score--; reasons.push(Math.abs(gap).toFixed(1) + '% above Peter Lynch fair value.'); }
+    }
+    if (info.peg != null) {
+      checks++;
+      if (info.peg > 0 && info.peg < 1) { score++; reasons.push('PEG ratio of ' + info.peg.toFixed(2) + ' suggests cheap relative to growth.'); }
+      else if (info.peg > 2) { score--; reasons.push('PEG ratio of ' + info.peg.toFixed(2) + ' suggests expensive relative to growth.'); }
+    }
+    if (info.fcfYield != null) {
+      checks++;
+      if (info.fcfYield > 6) { score++; reasons.push('FCF yield of ' + info.fcfYield.toFixed(1) + '% is attractive.'); }
+      else if (info.fcfYield < 0) { score--; reasons.push('Negative free cash flow yield.'); }
+      else if (info.fcfYield < 1.5) { score--; reasons.push('FCF yield of only ' + info.fcfYield.toFixed(1) + '% is thin.'); }
+    }
+
+    if (!checks) return null;
+    const ratio = (score + checks) / (2 * checks); // normalize -checks..+checks to 0..1
+    let tag, cssClass;
+    if (ratio >= 0.65) { tag = 'Cheap'; cssClass = 'strong-buy'; }
+    else if (ratio >= 0.4) { tag = 'Fair'; cssClass = 'neutral'; }
+    else { tag = 'Expensive'; cssClass = 'sell'; }
+
+    return { tag, cssClass, reasons };
+  }
+
+  return { analyse, analyseLongTerm, riskLevel, valuationVerdict };
 })();
