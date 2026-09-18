@@ -1752,6 +1752,45 @@ const App = (() => {
     URL.revokeObjectURL(url);
   }
 
+  // Renders the three independent verdicts (Long-Term, Risk, Valuation) as
+  // compact badges. Unlike the master verdict box, these work with only
+  // state.sheet present — no chart required — so Screener-only fallback
+  // mode still shows real answers instead of nothing.
+  function renderVerdictBadges() {
+    const host = $('#extra-verdicts');
+    if (!host) return;
+    const badges = [];
+
+    const lt = state.longTermVerdict;
+    if (lt) {
+      badges.push(
+        '<div class="verdict-badge ' + lt.cssClass + '">' +
+        '<div class="vb-label">Long-Term Investment</div>' +
+        '<div class="vb-tag">' + lt.verdict + '</div>' +
+        '<div class="vb-reason">' + lt.summary + '</div></div>'
+      );
+    }
+    const risk = state.riskVerdict;
+    if (risk) {
+      badges.push(
+        '<div class="verdict-badge ' + risk.cssClass + '">' +
+        '<div class="vb-label">Risk Level</div>' +
+        '<div class="vb-tag">' + risk.level + '</div>' +
+        '<div class="vb-reason">' + risk.reasons.slice(0, 2).join(' ') + '</div></div>'
+      );
+    }
+    const val = state.valuationVerdict;
+    if (val) {
+      badges.push(
+        '<div class="verdict-badge ' + val.cssClass + '">' +
+        '<div class="vb-label">Valuation</div>' +
+        '<div class="vb-tag">' + val.tag + '</div>' +
+        '<div class="vb-reason">' + val.reasons.slice(0, 2).join(' ') + '</div></div>'
+      );
+    }
+    host.innerHTML = badges.join('');
+  }
+
   function renderMarketView() {
     renderCompanyInfoTop(state.sheet);
     const v = state.verdict;
@@ -1763,6 +1802,7 @@ const App = (() => {
         box.innerHTML =
           '<h2>Fundamentals loaded</h2><p>Price chart / technical verdict unavailable. Use valuation and tables below.</p>';
       }
+      renderVerdictBadges();
       renderValuationWidgets(null);
       renderSheetDashboard(state.sheet);
       renderVerdictHistory(state.rawInput);
@@ -1802,6 +1842,7 @@ const App = (() => {
     $('#m-rsi').textContent = last.rsi != null ? last.rsi.toFixed(1) : '—';
     $('#m-macd').textContent = last.macdHist != null ? last.macdHist.toFixed(2) : '—';
     $('#m-bull').textContent = (v.bullRatio * 100).toFixed(1) + '%';
+    renderVerdictBadges();
 
     if (state.df) drawPriceChart();
     renderCandlestickPatterns(state.df);
@@ -2137,24 +2178,55 @@ const App = (() => {
   // result and stores it on state. Shared by the initial load and by
   // retryChart() so both paths compute the verdict identically. Returns
   // true if a usable chart was found (>=30 bars), false otherwise.
-  function applyChartResult(chartRes) {
-    if (chartRes.history && chartRes.history.length >= 30) {
-      state.df = Indicators.calculateAll(chartRes.history);
+  // Rebuilds verdictInfo from whatever state.df/state.sheet currently hold
+  // and recomputes all four verdicts (master, long-term, risk, valuation).
+  // Called when the chart first loads or is retried, AND when fundamentals
+  // arrive later via retryFundamentals() — so a late fundamentals fetch
+  // still enriches verdicts that were already computed on chart-only data,
+  // instead of those verdicts staying stuck on stale/missing info forever.
+  // Each verdict is computed independently of the others' data
+  // availability: Long-Term and Valuation only need state.sheet, Risk can
+  // work from debt alone without price history, so Screener-only fallback
+  // mode (no chart) still gets real answers instead of nothing.
+  function recomputeVerdict() {
+    const verdictInfo = Object.assign({}, state.info);
+    const lastClose = state.df && state.df.length ? state.df[state.df.length - 1].close : null;
+    verdictInfo.price = lastClose != null ? lastClose : (state.info && state.info.currentPrice != null ? state.info.currentPrice : null);
 
-      // Merge in the advanced signals so the verdict engine can actually
-      // use them — previously the verdict ran before applySheet(), so it
-      // never saw fundamentals at all, only Yahoo's bare price info.
-      const verdictInfo = Object.assign({}, state.info);
-      if (state.sheet) {
-        const sn = state.sheet.snapshot || {};
-        const gf = grahamFormulaFairValue(state.sheet);
-        const lv = lynchFairValue(state.sheet);
-        verdictInfo.grahamFormulaValue = gf ? gf.value : null;
-        verdictInfo.lynchValue = lv ? lv.value : null;
-        verdictInfo.growthFloored = (gf && gf.floored) || (lv && lv.floored) || false;
-        verdictInfo.piotroski = piotroskiFScore(state.sheet);
-        verdictInfo.dupont = duPontAnalysis(state.sheet, sn);
+    if (state.sheet) {
+      const sn = state.sheet.snapshot || {};
+      const gf = grahamFormulaFairValue(state.sheet);
+      const lv = lynchFairValue(state.sheet);
+      verdictInfo.grahamFormulaValue = gf ? gf.value : null;
+      verdictInfo.lynchValue = lv ? lv.value : null;
+      verdictInfo.growthFloored = (gf && gf.floored) || (lv && lv.floored) || false;
+      verdictInfo.piotroski = piotroskiFScore(state.sheet);
+      verdictInfo.dupont = duPontAnalysis(state.sheet, sn);
+
+      // Quality/moat trend signals — same computation qualityMoatSection()
+      // uses for display, reused here so the verdict and the dashboard
+      // never disagree about which way a trend is heading.
+      const t = state.sheet.tables || {};
+      verdictInfo.qualityTrends = [
+        trendVerdict('Promoter Holding', trendRow(t.shareholding, 'promoter'), { goodDirection: 'up' }),
+        trendVerdict('FII Holding', trendRow(t.shareholding, 'fii'), { goodDirection: 'up' }),
+        trendVerdict('DII Holding', trendRow(t.shareholding, 'dii'), { goodDirection: 'up' }),
+        trendVerdict('Return on Equity', trendRow(t.ratios, 'return on equity') || trendRow(t.ratios, 'roe'), { goodDirection: 'up' }),
+        trendVerdict('ROCE', trendRow(t.ratios, 'roce'), { goodDirection: 'up' }),
+        trendVerdict('Borrowings (Debt)', trendRow(t.balanceSheet, 'borrowings'), { goodDirection: 'down', unit: ' Cr' })
+      ].filter(Boolean);
+
+      // Same PEG / FCF yield formulas as the Advanced Ratios card.
+      const growthForPeg = state.sheet.profitGrowth && state.sheet.profitGrowth.y5 != null ? state.sheet.profitGrowth.y5 : null;
+      if (sn.stockPE != null && growthForPeg != null && growthForPeg > 0) {
+        verdictInfo.peg = sn.stockPE / growthForPeg;
       }
+      if (state.sheet.freeCashflowCr != null && sn.marketCapCr != null && sn.marketCapCr > 0) {
+        verdictInfo.fcfYield = (state.sheet.freeCashflowCr / sn.marketCapCr) * 100;
+      }
+    }
+
+    if (state.df) {
       verdictInfo.riskMetrics = Indicators.riskMetrics(state.df);
       Object.assign(verdictInfo, fibProximity(state.df));
       verdictInfo.candlePatterns = Indicators.detectCandlestickPatterns(state.df);
@@ -2178,13 +2250,26 @@ const App = (() => {
           date: new Date().toISOString().slice(0, 10),
           master: state.verdict.master,
           bullRatio: state.verdict.bullRatio,
-          price: state.df[state.df.length - 1].close
+          price: verdictInfo.price
         });
       }
+    } else {
+      state.verdict = null;
+    }
+
+    state.longTermVerdict = state.sheet ? VerdictEngine.analyseLongTerm(verdictInfo) : null;
+    state.riskVerdict = VerdictEngine.riskLevel(verdictInfo);
+    state.valuationVerdict = state.sheet ? VerdictEngine.valuationVerdict(verdictInfo) : null;
+  }
+
+  function applyChartResult(chartRes) {
+    if (chartRes.history && chartRes.history.length >= 30) {
+      state.df = Indicators.calculateAll(chartRes.history);
+      recomputeVerdict();
       return true;
     }
     state.df = null;
-    state.verdict = null;
+    recomputeVerdict();
     return false;
   }
 
@@ -2261,6 +2346,7 @@ const App = (() => {
       const res = await sheetsJsonp({ action: 'analyse', ticker: state.rawInput }, SHEETS_ANALYSE_TIMEOUT_MS);
       if (res && res.ok && res.data) {
         applySheet(res.data);
+        recomputeVerdict();
         ok = true;
       }
     } catch (e) {
