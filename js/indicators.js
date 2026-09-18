@@ -594,6 +594,15 @@ const Indicators = (() => {
     const annualReturn = Math.pow(1 + mean, 252) - 1;
     const sharpe = annualVol > 0 ? (annualReturn - RISK_FREE_RATE) / annualVol : null;
 
+    // Sortino ratio — like Sharpe, but only penalizes downside volatility
+    // (negative daily returns), since upside swings aren't the risk an
+    // investor actually cares about. Standard convention: deviations below
+    // 0 squared, zero otherwise, divided by the full period count.
+    const downsideSquares = returns.map((r) => (r < 0 ? r * r : 0));
+    const downsideVar = downsideSquares.reduce((a, b) => a + b, 0) / n;
+    const annualDownsideDev = Math.sqrt(downsideVar) * Math.sqrt(252);
+    const sortino = annualDownsideDev > 0 ? (annualReturn - RISK_FREE_RATE) / annualDownsideDev : null;
+
     // Max drawdown off the closing price series
     let peak = -Infinity;
     let maxDD = 0;
@@ -613,6 +622,7 @@ const Indicators = (() => {
       annualReturn: annualReturn * 100,
       annualVol: annualVol * 100,
       sharpe,
+      sortino,
       maxDrawdown: maxDD * 100,
       bestDay: bestDay * 100,
       worstDay: worstDay * 100
