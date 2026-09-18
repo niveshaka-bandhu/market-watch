@@ -906,6 +906,7 @@ const App = (() => {
       ]) +
       '</div>' +
       qualityMoatSection(d) +
+      advancedModelsSection(d) +
       growthTable(g, pg, pc, roe) +
       duPontTable(dupont) +
       piotroskiTable(piotroski) +
@@ -1016,6 +1017,69 @@ const App = (() => {
     );
   }
 
+  function miniTag(cssClass, text) {
+    const color =
+      cssClass === 'strong-buy' ? 'var(--green)' :
+      cssClass === 'sell' ? 'var(--red)' :
+      cssClass === 'mild-buy' ? 'var(--yellow)' : 'var(--text-muted)';
+    return '<span style="color:' + color + ';font-weight:700">' + text + '</span>';
+  }
+
+  function advancedModelsSection(d) {
+    const sn = d.snapshot || {};
+    const dupont = duPontAnalysis(d, sn);
+    const altman = altmanZScore(d, sn);
+    const acq = acquirersMultiple(d, sn);
+    const magicYield = magicFormulaYield(d, sn);
+    const rw = roicVsWacc(d);
+    const r40 = ruleOf40(d, dupont);
+
+    const rows = [];
+    if (altman) {
+      rows.push(
+        '<tr><td>Altman Z-Score</td><td>' + fmt(altman.z, 2) + '</td><td>' +
+        miniTag(altman.cssClass, altman.zone) + '</td></tr>'
+      );
+    }
+    if (acq) {
+      rows.push(
+        "<tr><td>Acquirer's Multiple (EV/EBIT)</td><td>" + fmt(acq.multiple, 2) + 'x</td><td>' +
+        miniTag(acq.cheap ? 'strong-buy' : 'neutral', acq.cheap ? 'Deep-value range' : 'Above 6.0x') + '</td></tr>'
+      );
+    }
+    if (magicYield != null) {
+      rows.push(
+        '<tr><td>Magic Formula Earnings Yield</td><td>' + fmt(magicYield, 2) + '%</td><td>' +
+        miniTag(magicYield > 12 ? 'strong-buy' : magicYield < 5 ? 'sell' : 'neutral',
+          magicYield > 12 ? 'Attractive' : magicYield < 5 ? 'Low' : 'Moderate') + '</td></tr>'
+      );
+    }
+    if (rw) {
+      rows.push(
+        '<tr><td>ROIC vs WACC</td><td>' + fmt(rw.roic, 1) + '% vs ' + fmt(rw.wacc, 1) + '%</td><td>' +
+        miniTag(rw.creatingValue ? 'strong-buy' : 'sell', rw.creatingValue ? 'Creating value' : 'Destroying value') + '</td></tr>'
+      );
+    }
+    if (r40) {
+      rows.push(
+        '<tr><td>Rule of 40 (growth + margin)</td><td>' + fmt(r40.score, 1) + '%</td><td>' +
+        miniTag(r40.healthy ? 'strong-buy' : 'neutral', r40.healthy ? 'Healthy' : 'Below 40') + '</td></tr>'
+      );
+    }
+    if (!rows.length) return '';
+
+    return (
+      '<div class="card" style="margin-top:14px;overflow-x:auto">' +
+      '<h3>Advanced Financial Models</h3>' +
+      '<p style="font-size:11px;color:var(--text-muted);margin-bottom:10px;line-height:1.5">' +
+      "Altman Z-Score approximates working capital from Screener's general asset/liability categories (not a precise current-assets breakdown) and is designed for non-financial companies — treat it as indicative, especially for banks/NBFCs. " +
+      'ROIC vs WACC assumes Beta = 1 (not fetched in this flow) and a 25% default tax rate where Screener doesn\'t report one directly.' +
+      '</p>' +
+      '<table class="data-table"><thead><tr><th>Model</th><th>Value</th><th>Read</th></tr></thead><tbody>' +
+      rows.join('') + '</tbody></table></div>'
+    );
+  }
+
   // Quality & Moat Trends: pulls promoter/FII/DII holding, ROE/ROCE, and
   // debt trends out of tables the app already scrapes, and surfaces the
   // direction (rising/falling/stable) with a plain-language takeaway —
@@ -1086,6 +1150,130 @@ const App = (() => {
       computedRoe,
       reportedRoe: sn.roe != null ? sn.roe : null
     };
+  }
+
+  // ---------------- Advanced Financial Models ----------------
+  // Shared building blocks. EBIT = Profit Before Tax + Interest (standard
+  // identity: PBT already has interest and depreciation subtracted, adding
+  // interest back removes only that, not depreciation, which is correct —
+  // EBIT still nets out D&A, only Interest and Tax are excluded).
+  function ebitCr(d) {
+    const pl = (d.tables || {}).profitLoss;
+    const pbt = latestValues(pl, 'profit before tax', 1)[0];
+    const interest = latestValues(pl, 'interest', 1)[0];
+    if (pbt == null) return null;
+    return pbt + (interest || 0);
+  }
+
+  // Enterprise Value = Market Cap + Debt. Screener's standard balance sheet
+  // doesn't break out Cash & Equivalents separately from other assets, so
+  // this can't net cash off the way a precise EV normally would — treat it
+  // as an upper-bound EV, not an exact one.
+  function enterpriseValueCr(d, sn) {
+    if (sn.marketCapCr == null) return null;
+    return sn.marketCapCr + (d.borrowingsCr || 0);
+  }
+
+  // Altman Z-Score (bankruptcy risk). IMPORTANT CAVEAT: designed for
+  // non-financial/industrial companies — meaningless for banks, NBFCs, and
+  // insurers, whose capital structure works entirely differently (this app
+  // has no sector/industry field yet to auto-detect and skip those).
+  // X1 (working capital / total assets) is approximated from Screener's
+  // "Other Assets" / "Other Liabilities" catch-all rows, since the standard
+  // balance sheet view doesn't separately report current assets/
+  // liabilities — treat the whole score as indicative, not precision
+  // research.
+  function altmanZScore(d, sn) {
+    const bs = (d.tables || {}).balanceSheet;
+    const ta = d.totalAssetsCr;
+    if (ta == null || ta <= 0 || sn.marketCapCr == null) return null;
+
+    const otherAssets = latestValues(bs, 'other assets', 1)[0];
+    const otherLiabilities = latestValues(bs, 'other liabilities', 1)[0];
+    const borrowings = d.borrowingsCr || 0;
+    const totalLiabExEquity = borrowings + (otherLiabilities || 0);
+    if (totalLiabExEquity <= 0) return null;
+
+    const x1 = otherAssets != null && otherLiabilities != null ? (otherAssets - otherLiabilities) / ta : 0;
+    const x2 = d.reservesCr != null ? d.reservesCr / ta : 0;
+    const ebit = ebitCr(d);
+    const x3 = ebit != null ? ebit / ta : 0;
+    const x4 = sn.marketCapCr / totalLiabExEquity;
+    const x5 = d.salesTtmCr != null ? d.salesTtmCr / ta : 0;
+
+    const z = 1.2 * x1 + 1.4 * x2 + 3.3 * x3 + 0.6 * x4 + 1.0 * x5;
+    let zone, cssClass;
+    if (z > 2.99) { zone = 'Safe Zone'; cssClass = 'strong-buy'; }
+    else if (z >= 1.81) { zone = 'Grey Zone'; cssClass = 'mild-buy'; }
+    else { zone = 'Distress Zone'; cssClass = 'sell'; }
+
+    return { z, zone, cssClass };
+  }
+
+  // Acquirer's Multiple = EV / EBIT. Lower is cheaper; <6 is the classic
+  // deep-value/takeover-candidate threshold (Tobias Carlisle).
+  function acquirersMultiple(d, sn) {
+    const ev = enterpriseValueCr(d, sn);
+    const ebit = ebitCr(d);
+    if (ev == null || ebit == null || ebit <= 0) return null;
+    const multiple = ev / ebit;
+    return { multiple, cheap: multiple < 6 };
+  }
+
+  // Greenblatt's Magic Formula earnings yield = EBIT / EV, as a percentage.
+  function magicFormulaYield(d, sn) {
+    const ev = enterpriseValueCr(d, sn);
+    const ebit = ebitCr(d);
+    if (ev == null || ev <= 0 || ebit == null) return null;
+    return (ebit / ev) * 100;
+  }
+
+  // ROIC vs WACC — is the business creating or destroying shareholder
+  // value? Invested Capital = Debt + Equity (Borrowings + Equity Capital +
+  // Reserves), all clean, directly-scraped balance sheet rows. WACC uses
+  // CAPM for cost of equity with beta defaulted to 1 (market-average) since
+  // beta is only computed lazily in the separate Beta & Correlation panel,
+  // not fetched as part of the main load — wiring that in here would add
+  // another network round-trip to every ticker load. Cost of debt comes
+  // from actual interest paid rather than an assumed rate where available.
+  function roicVsWacc(d) {
+    const pl = (d.tables || {}).profitLoss;
+    const ebit = ebitCr(d);
+    const taxPct = latestValues(pl, 'tax %', 1)[0];
+    const taxRate = taxPct != null && taxPct >= 0 && taxPct < 100 ? taxPct / 100 : 0.25;
+    const borrowings = d.borrowingsCr || 0;
+    const equity = (d.equityCapitalCr || 0) + (d.reservesCr || 0);
+    const investedCapital = borrowings + equity;
+    if (ebit == null || investedCapital <= 0) return null;
+
+    const nopat = ebit * (1 - taxRate);
+    const roic = (nopat / investedCapital) * 100;
+
+    const riskFreeRate = 7; // approx. 10Y G-Sec — matches Indicators.riskMetrics' Sharpe assumption
+    const marketRiskPremium = 6; // approx. long-run Indian equity risk premium
+    const beta = 1; // default: not fetched as part of this load, see note above
+    const costOfEquity = riskFreeRate + beta * marketRiskPremium;
+
+    const interest = latestValues(pl, 'interest', 1)[0];
+    const costOfDebtPretax = interest != null && borrowings > 0 ? (interest / borrowings) * 100 : riskFreeRate + 2;
+    const costOfDebtAfterTax = costOfDebtPretax * (1 - taxRate);
+
+    const weightEquity = investedCapital > 0 ? equity / investedCapital : 1;
+    const weightDebt = investedCapital > 0 ? borrowings / investedCapital : 0;
+    const wacc = weightEquity * costOfEquity + weightDebt * costOfDebtAfterTax;
+
+    return { roic, wacc, creatingValue: roic > wacc, spread: roic - wacc, betaAssumed: true };
+  }
+
+  // Rule of 40 — revenue growth % + profit margin % should clear 40 for a
+  // growth business to be considered scaling sustainably (originally a
+  // SaaS metric, applied loosely here to any growth-stage company).
+  function ruleOf40(d, dupont) {
+    const revGrowth = d.salesGrowth && d.salesGrowth.ttm != null ? d.salesGrowth.ttm : null;
+    const margin = dupont && dupont.netMargin != null ? dupont.netMargin : null;
+    if (revGrowth == null || margin == null) return null;
+    const score = revGrowth + margin;
+    return { score, healthy: score >= 40, revGrowth, margin };
   }
 
   function piotroskiFScore(d) {
@@ -1756,6 +1944,22 @@ const App = (() => {
   // compact badges. Unlike the master verdict box, these work with only
   // state.sheet present — no chart required — so Screener-only fallback
   // mode still shows real answers instead of nothing.
+  // Renders the single reconciled headline above the detail badges.
+  function renderBottomLine() {
+    const host = $('#bottom-line');
+    if (!host) return;
+    const bl = state.bottomLine;
+    if (!bl) {
+      host.innerHTML = '';
+      return;
+    }
+    host.className = 'bottom-line-box ' + bl.cssClass;
+    host.innerHTML =
+      '<div class="bl-label">🎯 Bottom Line</div>' +
+      '<div class="bl-action">' + bl.action + '</div>' +
+      '<div class="bl-reason">' + bl.reason + '</div>';
+  }
+
   function renderVerdictBadges() {
     const host = $('#extra-verdicts');
     if (!host) return;
@@ -1802,6 +2006,7 @@ const App = (() => {
         box.innerHTML =
           '<h2>Fundamentals loaded</h2><p>Price chart / technical verdict unavailable. Use valuation and tables below.</p>';
       }
+      renderBottomLine();
       renderVerdictBadges();
       renderValuationWidgets(null);
       renderSheetDashboard(state.sheet);
@@ -1842,6 +2047,7 @@ const App = (() => {
     $('#m-rsi').textContent = last.rsi != null ? last.rsi.toFixed(1) : '—';
     $('#m-macd').textContent = last.macdHist != null ? last.macdHist.toFixed(2) : '—';
     $('#m-bull').textContent = (v.bullRatio * 100).toFixed(1) + '%';
+    renderBottomLine();
     renderVerdictBadges();
 
     if (state.df) drawPriceChart();
@@ -2224,6 +2430,16 @@ const App = (() => {
       if (state.sheet.freeCashflowCr != null && sn.marketCapCr != null && sn.marketCapCr > 0) {
         verdictInfo.fcfYield = (state.sheet.freeCashflowCr / sn.marketCapCr) * 100;
       }
+
+      // Advanced financial models — Altman Z-Score, Acquirer's Multiple,
+      // Magic Formula yield, ROIC vs WACC, Rule of 40. See each function's
+      // own comments for data-availability caveats (Altman's X1 in
+      // particular is approximated).
+      verdictInfo.altman = altmanZScore(state.sheet, sn);
+      verdictInfo.acquirersMultiple = acquirersMultiple(state.sheet, sn);
+      verdictInfo.magicFormulaYield = magicFormulaYield(state.sheet, sn);
+      verdictInfo.roicWacc = roicVsWacc(state.sheet);
+      verdictInfo.ruleOf40 = ruleOf40(state.sheet, verdictInfo.dupont);
     }
 
     if (state.df) {
@@ -2260,6 +2476,74 @@ const App = (() => {
     state.longTermVerdict = state.sheet ? VerdictEngine.analyseLongTerm(verdictInfo) : null;
     state.riskVerdict = VerdictEngine.riskLevel(verdictInfo);
     state.valuationVerdict = state.sheet ? VerdictEngine.valuationVerdict(verdictInfo) : null;
+    state.bottomLine = synthesizeBottomLine();
+  }
+
+  // Reconciles the four separate verdicts into ONE plain-language action,
+  // so four differently-colored badges never leave the person unsure what
+  // to actually do. The badges stay visible below as supporting detail for
+  // whoever wants the "why" — this is deliberately the only thing that
+  // needs reading if that's all someone wants.
+  function synthesizeBottomLine() {
+    const lt = state.longTermVerdict;
+    const val = state.valuationVerdict;
+    const risk = state.riskVerdict;
+    const master = state.verdict;
+
+    if (!lt && !val) return null; // nothing fundamental to go on at all
+
+    let action, cssClass, reason;
+
+    if (lt && lt.verdict === 'LONG-TERM BUY' && val && (val.tag === 'Cheap' || val.tag === 'Fair')) {
+      action = 'Worth considering for a long-term position';
+      cssClass = 'strong-buy';
+      reason = 'Fundamentals are strong and the price looks ' + (val.tag === 'Cheap' ? 'cheap' : 'reasonable') + '.';
+    } else if (lt && lt.verdict === 'LONG-TERM BUY' && val && val.tag === 'Expensive') {
+      action = 'Good business, but not at this price';
+      cssClass = 'mild-buy';
+      reason = 'Fundamentals support a long-term hold, but valuation looks rich right now — consider waiting for a better entry, or a phased/SIP approach instead of a lump sum.';
+    } else if (lt && lt.verdict === 'LONG-TERM BUY') {
+      action = 'Worth considering for a long-term position';
+      cssClass = 'strong-buy';
+      reason = 'Fundamentals are strong (valuation read unavailable).';
+    } else if (lt && lt.verdict === 'ACCUMULATE / HOLD') {
+      action = 'A tentative hold/accumulate, not a strong buy';
+      cssClass = 'mild-buy';
+      reason = 'The long-term case is net positive but not one-sided.';
+    } else if (lt && lt.verdict === 'HOLD / WATCH') {
+      action = 'Not a clear buy or sell right now';
+      cssClass = 'neutral';
+      reason = 'Fundamentals are mixed — worth watching rather than acting on immediately.';
+    } else if (lt && lt.verdict === 'AVOID / REDUCE') {
+      action = 'Fundamentals argue against buying here';
+      cssClass = 'sell';
+      reason = 'Weak or deteriorating fundamentals outweigh the positives for a long-term hold.';
+    } else if (val) {
+      // No long-term verdict computed (not enough fundamental checks) — fall back to valuation alone.
+      action = val.tag === 'Cheap' ? 'Valuation looks attractive, but check fundamentals too'
+        : val.tag === 'Expensive' ? 'Valuation looks rich'
+        : 'Fairly valued';
+      cssClass = val.tag === 'Cheap' ? 'strong-buy' : val.tag === 'Expensive' ? 'sell' : 'neutral';
+      reason = 'Not enough fundamental data for a full long-term read — valuation only.';
+    } else {
+      return null;
+    }
+
+    const notes = [];
+    if (risk && risk.level === 'High') {
+      notes.push('This carries above-average risk — size any position with that in mind.');
+    }
+    if (master && master.latest) {
+      const shortTermBearish = master.bullRatio < 0.4;
+      const shortTermBullish = master.bullRatio > 0.6;
+      if (cssClass !== 'sell' && shortTermBearish) {
+        notes.push('Short-term technicals look weak right now — if buying, consider a phased entry rather than all at once.');
+      } else if (cssClass === 'sell' && shortTermBullish) {
+        notes.push('Short-term momentum looks strong despite the fundamental concerns — a caution for new positions, not necessarily a signal to sell immediately if already holding.');
+      }
+    }
+
+    return { action, cssClass, reason: reason + (notes.length ? ' ' + notes.join(' ') : '') };
   }
 
   function applyChartResult(chartRes) {
