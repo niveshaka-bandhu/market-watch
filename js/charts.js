@@ -49,24 +49,41 @@ const Charts = (() => {
     return dates;
   }
 
-  function priceChart(df, showBollinger = true, fibLevels = null, daysToShow = 260, targetId = 'price-chart', ichimokuData = null) {
+  function priceChart(df, showBollinger = true, fibLevels = null, daysToShow = 260, targetId = 'price-chart', ichimokuData = null, chartType = 'candlestick') {
     if (typeof Plotly === 'undefined') return;
     if (!df || df.length < 5) return;
     const data = daysToShow ? df.slice(-daysToShow) : df;
     const dates = data.map(r => r.date);
 
+    const accentLine = isLight ? '#3a2d7f' : '#8b7fd6';
+    const accentFill = isLight ? 'rgba(58,45,127,0.06)' : 'rgba(139,127,214,0.08)';
+
+    const priceTrace =
+      chartType === 'line'
+        ? {
+            type: 'scatter',
+            mode: 'lines',
+            x: dates,
+            y: data.map(r => r.close),
+            name: 'Price',
+            line: { color: accentLine, width: 1.8 },
+            fill: 'tozeroy',
+            fillcolor: accentFill
+          }
+        : {
+            type: 'candlestick',
+            x: dates,
+            open: data.map(r => r.open),
+            high: data.map(r => r.high),
+            low: data.map(r => r.low),
+            close: data.map(r => r.close),
+            name: 'Price',
+            increasing: { line: { color: '#22c55e' }, fillcolor: '#22c55e' },
+            decreasing: { line: { color: '#ef4444' }, fillcolor: '#ef4444' }
+          };
+
     const traces = [
-      {
-        type: 'candlestick',
-        x: dates,
-        open: data.map(r => r.open),
-        high: data.map(r => r.high),
-        low: data.map(r => r.low),
-        close: data.map(r => r.close),
-        name: 'Price',
-        increasing: { line: { color: '#22c55e' }, fillcolor: '#22c55e' },
-        decreasing: { line: { color: '#ef4444' }, fillcolor: '#ef4444' }
-      },
+      priceTrace,
       {
         type: 'scatter',
         mode: 'lines',
