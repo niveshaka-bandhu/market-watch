@@ -22,6 +22,7 @@ const App = (() => {
     // switches this AND opens fullscreen together, since candlesticks only
     // really work with the extra room fullscreen provides.
     chartType: 'line',
+    priceMode: 'price', // 'price' | 'pe' | 'pb' — same chart container, different data
     fibEnabled: false,
     ichimokuEnabled: false,
     chartTimeframe: 'D',
@@ -1178,6 +1179,95 @@ const App = (() => {
     return isNaN(n) ? null : n;
   }
 
+  const MONTH_MAP = { Jan: 0, Feb: 1, Mar: 2, Apr: 3, May: 4, Jun: 5, Jul: 6, Aug: 7, Sep: 8, Oct: 9, Nov: 10, Dec: 11 };
+  // Screener period headers look like "Mar 2024" (quarterly) or "Mar 2020"
+  // (annual, fiscal year-end) — this maps either to the last day of that
+  // month, which is treated as "the day this period's numbers became known."
+  function parsePeriodLabel(label) {
+    if (!label) return null;
+    const m = String(label).match(/([A-Za-z]{3})[a-z]*\s+(\d{4})/);
+    if (!m) return null;
+    const month = MONTH_MAP[m[1]];
+    const year = parseInt(m[2], 10);
+    if (month == null || isNaN(year)) return null;
+    return new Date(Date.UTC(year, month + 1, 0));
+  }
+
+  // Historical P/E: rolling trailing-4-quarter EPS from the Quarterly
+  // Results table (already scraped, no new IMPORTHTML needed), stepped
+  // forward onto the daily price series — P/E only updates when a new
+  // quarter's EPS becomes available, exactly like the real ratio does.
+  function buildPeSeries(df, quarterlyTable) {
+    if (!df || !df.length || !quarterlyTable) return null;
+    const row = tableRow(quarterlyTable, 'eps');
+    if (!row) return null;
+    const headers = quarterlyTable.headers || [];
+    const points = [];
+    headers.forEach((h, i) => {
+      const d = parsePeriodLabel(h);
+      const v = parseNum(row.cells[i]);
+      if (d && v != null) points.push({ date: d, eps: v });
+    });
+    points.sort((a, b) => a.date - b.date);
+    if (points.length < 4) return null;
+
+    const ttmPoints = [];
+    for (let i = 3; i < points.length; i++) {
+      const ttm = points[i - 3].eps + points[i - 2].eps + points[i - 1].eps + points[i].eps;
+      if (ttm > 0) ttmPoints.push({ date: points[i].date, ttmEps: ttm });
+    }
+    if (!ttmPoints.length) return null;
+
+    const dates = [];
+    const values = [];
+    let ptr = -1;
+    df.forEach((r) => {
+      const rowDate = new Date(r.date + 'T00:00:00Z');
+      while (ptr + 1 < ttmPoints.length && ttmPoints[ptr + 1].date <= rowDate) ptr++;
+      const applicable = ptr >= 0 ? ttmPoints[ptr] : null;
+      dates.push(r.date);
+      values.push(applicable ? r.close / applicable.ttmEps : null);
+    });
+    return { dates, values };
+  }
+
+  // Historical P/B: book value per share from the annual Balance Sheet
+  // table (Equity Capital + Reserves, both already scraped), divided by
+  // current shares outstanding — assumes share count hasn't materially
+  // changed historically (a split/bonus/rights issue would skew older
+  // points), stepped onto the daily price series once per fiscal year.
+  function buildPbSeries(df, balanceSheetTable, sharesOutstandingCr) {
+    if (!df || !df.length || !balanceSheetTable || !sharesOutstandingCr) return null;
+    const eqRow = tableRow(balanceSheetTable, 'equity capital');
+    const resRow = tableRow(balanceSheetTable, 'reserves');
+    if (!eqRow || !resRow) return null;
+    const headers = balanceSheetTable.headers || [];
+    const points = [];
+    headers.forEach((h, i) => {
+      const d = parsePeriodLabel(h);
+      const eq = parseNum(eqRow.cells[i]);
+      const res = parseNum(resRow.cells[i]);
+      if (d && eq != null && res != null) {
+        const bvps = (eq + res) / sharesOutstandingCr;
+        if (bvps > 0) points.push({ date: d, bvps });
+      }
+    });
+    points.sort((a, b) => a.date - b.date);
+    if (!points.length) return null;
+
+    const dates = [];
+    const values = [];
+    let ptr = -1;
+    df.forEach((r) => {
+      const rowDate = new Date(r.date + 'T00:00:00Z');
+      while (ptr + 1 < points.length && points[ptr + 1].date <= rowDate) ptr++;
+      const applicable = ptr >= 0 ? points[ptr] : null;
+      dates.push(r.date);
+      values.push(applicable ? r.close / applicable.bvps : null);
+    });
+    return { dates, values };
+  }
+
   function tableRow(table, labelPart) {
     if (!table || !table.rows) return null;
     const lp = labelPart.toLowerCase();
@@ -1721,6 +1811,26 @@ const App = (() => {
   function drawPriceChart() {
     if (typeof Charts === 'undefined') return;
     const target = state.fullscreenChart ? '#price-chart-fullscreen' : '#price-chart';
+
+    if (state.priceMode === 'pe' || state.priceMode === 'pb') {
+      if (!state.df) return;
+      const t = (state.sheet && state.sheet.tables) || {};
+      const series =
+        state.priceMode === 'pe'
+          ? buildPeSeries(state.df, t.quarterly)
+          : buildPbSeries(state.df, t.balanceSheet, state.sheet && state.sheet.sharesOutstandingCr);
+      const host = $(target);
+      if (!series) {
+        if (host)
+          host.innerHTML =
+            '<p style="color:var(--text-muted);font-size:13px;padding:20px">Not enough data to compute a historical ' +
+            state.priceMode.toUpperCase() + ' chart for this stock.</p>';
+        return;
+      }
+      Charts.ratioChart(series.dates, series.values, state.priceMode === 'pe' ? 'P/E Ratio' : 'P/B Ratio', target);
+      return;
+    }
+
     if (state.intradayInterval && state.intradayDf) {
       Charts.priceChart(state.intradayDf, state.showBollinger, null, 0, target, null, state.chartType);
       return;
@@ -3286,6 +3396,12 @@ const App = (() => {
       if (a) a.addEventListener('change', () => apply(a.checked));
       if (b) b.addEventListener('change', () => apply(b.checked));
     }
+    $$('input[name="price-mode"]').forEach((radio) => {
+      radio.addEventListener('change', (e) => {
+        state.priceMode = e.target.value;
+        if (state.view === 'market') drawPriceChart();
+      });
+    });
     syncCheckboxPair('#show-bb', '#show-bb-fs', 'showBollinger');
     syncCheckboxPair('#show-fib', '#show-fib-fs', 'fibEnabled');
     syncCheckboxPair('#show-ichimoku', '#show-ichimoku-fs', 'ichimokuEnabled');
