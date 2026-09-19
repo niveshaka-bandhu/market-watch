@@ -17,6 +17,11 @@ const App = (() => {
     info: {},
     verdict: null,
     showBollinger: true,
+    // Line by default — candlesticks packed into a phone-width chart read as
+    // a solid smear rather than individual candles. The "Candlestick" button
+    // switches this AND opens fullscreen together, since candlesticks only
+    // really work with the extra room fullscreen provides.
+    chartType: 'line',
     fibEnabled: false,
     ichimokuEnabled: false,
     chartTimeframe: 'D',
@@ -1717,7 +1722,7 @@ const App = (() => {
     if (typeof Charts === 'undefined') return;
     const target = state.fullscreenChart ? '#price-chart-fullscreen' : '#price-chart';
     if (state.intradayInterval && state.intradayDf) {
-      Charts.priceChart(state.intradayDf, state.showBollinger, null, 0, target);
+      Charts.priceChart(state.intradayDf, state.showBollinger, null, 0, target, null, state.chartType);
       return;
     }
     if (!state.df) return;
@@ -1727,7 +1732,7 @@ const App = (() => {
     let daysToShow = state.chartRange;
     if (daysToShow && state.chartTimeframe === 'W') daysToShow = Math.ceil(daysToShow / 5);
     else if (daysToShow && state.chartTimeframe === 'M') daysToShow = Math.ceil(daysToShow / 21);
-    Charts.priceChart(data, state.showBollinger, fib, daysToShow, target, ichimokuData);
+    Charts.priceChart(data, state.showBollinger, fib, daysToShow, target, ichimokuData, state.chartType);
   }
 
   async function loadIntradayChart(interval) {
@@ -3011,6 +3016,8 @@ const App = (() => {
     state.intradayDf = null;
     const intervalSel = $('#chart-interval');
     if (intervalSel) intervalSel.value = 'D';
+    const intervalSelFs = $('#chart-interval-fs');
+    if (intervalSelFs) intervalSelFs.value = 'D';
     state.sheet = null;
     const peer1El = $('#peer-1');
     const peer2El = $('#peer-2');
@@ -3264,32 +3271,31 @@ const App = (() => {
     });
     const moreBackdrop = $('#more-sheet-backdrop');
     if (moreBackdrop) moreBackdrop.addEventListener('click', closeMoreSheet);
-    const bb = $('#show-bb');
-    if (bb)
-      bb.addEventListener('change', () => {
-        state.showBollinger = bb.checked;
+    // Compact and fullscreen toolbars are two separate DOM locations showing
+    // the same underlying state — these helpers keep both in sync instead
+    // of duplicating the change-handling logic for each pair.
+    function syncCheckboxPair(idMain, idFs, stateKey) {
+      const a = $(idMain);
+      const b = $(idFs);
+      function apply(checked) {
+        state[stateKey] = checked;
+        if (a) a.checked = checked;
+        if (b) b.checked = checked;
         if (state.view === 'market') drawPriceChart();
-      });
-    const fib = $('#show-fib');
-    if (fib)
-      fib.addEventListener('change', () => {
-        state.fibEnabled = fib.checked;
-        if (state.view === 'market') drawPriceChart();
-      });
-    const ichi = $('#show-ichimoku');
-    if (ichi)
-      ichi.addEventListener('change', () => {
-        state.ichimokuEnabled = ichi.checked;
-        if (state.view === 'market') drawPriceChart();
-      });
-    const peerBtn = $('#peer-compare-btn');
-    if (peerBtn) peerBtn.addEventListener('click', runPeerComparison);
-    const csvBtn = $('#csv-export-btn');
-    if (csvBtn) csvBtn.addEventListener('click', exportCsv);
-    const intervalSel = $('#chart-interval');
-    if (intervalSel) {
-      intervalSel.addEventListener('change', (e) => {
+      }
+      if (a) a.addEventListener('change', () => apply(a.checked));
+      if (b) b.addEventListener('change', () => apply(b.checked));
+    }
+    syncCheckboxPair('#show-bb', '#show-bb-fs', 'showBollinger');
+    syncCheckboxPair('#show-fib', '#show-fib-fs', 'fibEnabled');
+    syncCheckboxPair('#show-ichimoku', '#show-ichimoku-fs', 'ichimokuEnabled');
+
+    function wireIntervalSelect(sel) {
+      if (!sel) return;
+      sel.addEventListener('change', (e) => {
         const val = e.target.value;
+        const other = sel.id === 'chart-interval' ? $('#chart-interval-fs') : $('#chart-interval');
+        if (other) other.value = val;
         const note = $('#chart-mode-note');
         if (val === 'D' || val === 'W' || val === 'M') {
           state.chartTimeframe = val;
@@ -3303,12 +3309,61 @@ const App = (() => {
         }
       });
     }
-    $$('input[name="chart-range"]').forEach((radio) => {
-      radio.addEventListener('change', (e) => {
-        state.chartRange = parseInt(e.target.value, 10) || 0;
-        if (state.view === 'market') drawPriceChart();
+    wireIntervalSelect($('#chart-interval'));
+    wireIntervalSelect($('#chart-interval-fs'));
+
+    function wireRangeRadios(name) {
+      $$('input[name="' + name + '"]').forEach((radio) => {
+        radio.addEventListener('change', (e) => {
+          state.chartRange = parseInt(e.target.value, 10) || 0;
+          const otherName = name === 'chart-range' ? 'chart-range-fs' : 'chart-range';
+          const other = document.querySelector('input[name="' + otherName + '"][value="' + e.target.value + '"]');
+          if (other) other.checked = true;
+          if (state.view === 'market') drawPriceChart();
+        });
       });
-    });
+    }
+    wireRangeRadios('chart-range');
+    wireRangeRadios('chart-range-fs');
+
+    // Chart type toggle. The compact button both switches type AND opens
+    // fullscreen when going TO candlestick — candlesticks packed into a
+    // phone-width chart are the exact complaint this feature responds to,
+    // so asking for candlesticks always comes with the room to actually see
+    // them. Switching back to line, or toggling from inside fullscreen
+    // already open, doesn't force any view change.
+    function updateChartTypeButtons() {
+      const label = state.chartType === 'line' ? '🕯️ Candlestick' : '📈 Line';
+      const a = $('#chart-type-toggle');
+      const b = $('#chart-type-toggle-fs');
+      if (a) a.textContent = label;
+      if (b) b.textContent = label;
+    }
+    updateChartTypeButtons();
+    const chartTypeBtn = $('#chart-type-toggle');
+    if (chartTypeBtn)
+      chartTypeBtn.addEventListener('click', () => {
+        const goingToCandlestick = state.chartType === 'line';
+        state.chartType = goingToCandlestick ? 'candlestick' : 'line';
+        updateChartTypeButtons();
+        if (goingToCandlestick && !state.fullscreenChart) {
+          openChartFullscreen();
+        } else if (state.view === 'market') {
+          drawPriceChart();
+        }
+      });
+    const chartTypeBtnFs = $('#chart-type-toggle-fs');
+    if (chartTypeBtnFs)
+      chartTypeBtnFs.addEventListener('click', () => {
+        state.chartType = state.chartType === 'line' ? 'candlestick' : 'line';
+        updateChartTypeButtons();
+        drawPriceChart();
+      });
+
+    const peerBtn = $('#peer-compare-btn');
+    if (peerBtn) peerBtn.addEventListener('click', runPeerComparison);
+    const csvBtn = $('#csv-export-btn');
+    if (csvBtn) csvBtn.addEventListener('click', exportCsv);
     // Shorter default range on mobile — a full year of daily candles
     // squeezed into a phone-width chart reads as a solid smear rather than
     // individual candles. Desktop keeps the 1Y default (HTML checkbox
@@ -3317,6 +3372,8 @@ const App = (() => {
       state.chartRange = 126;
       const sixM = document.querySelector('input[name="chart-range"][value="126"]');
       if (sixM) sixM.checked = true;
+      const sixMFs = document.querySelector('input[name="chart-range-fs"][value="126"]');
+      if (sixMFs) sixMFs.checked = true;
     }
     const input = $('#ticker-input');
     if (input) input.addEventListener('keydown', (e) => e.key === 'Enter' && loadTicker());
