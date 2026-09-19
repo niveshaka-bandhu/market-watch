@@ -7,7 +7,7 @@ const SHEETS_API = 'https://script.google.com/macros/s/AKfycbxgR0EC7xaqe9H0Wx9gG
 const SHEETS_ANALYSE_TIMEOUT_MS = 185000;
 // Your GitHub Pages URL for this app — shown at the end of the shared text
 // report so whoever receives it can open the app themselves.
-const APP_URL = 'https://niveshaka-bandhu.github.io/market-watch/';
+const APP_URL = 'https://YOUR-USERNAME.github.io/YOUR-REPO/';
 
 const App = (() => {
   let state = {
@@ -395,6 +395,7 @@ const App = (() => {
     if (state.longTermVerdict) extraVerdictLines.push('Long-Term Investment: ' + state.longTermVerdict.verdict);
     if (state.riskVerdict) extraVerdictLines.push('Risk Level: ' + state.riskVerdict.level);
     if (state.valuationVerdict) extraVerdictLines.push('Valuation: ' + state.valuationVerdict.tag);
+    if (state.nbScore) extraVerdictLines.push('NB Score: ' + state.nbScore.score + '/' + state.nbScore.max + ' (' + state.nbScore.tag + ')');
     if (extraVerdictLines.length) {
       heading('Additional Verdicts', 12);
       para(extraVerdictLines.join('    |    '));
@@ -711,6 +712,7 @@ const App = (() => {
     if (state.longTermVerdict) verdictLine.push('*Long-Term:* ' + state.longTermVerdict.verdict);
     if (state.riskVerdict) verdictLine.push('*Risk:* ' + state.riskVerdict.level);
     if (state.valuationVerdict) verdictLine.push('*Valuation:* ' + state.valuationVerdict.tag);
+    if (state.nbScore) verdictLine.push('*NB Score:* ' + state.nbScore.score + '/' + state.nbScore.max + ' (' + state.nbScore.tag + ')');
     if (verdictLine.length) {
       lines.push(verdictLine.join('\n'));
       lines.push('');
@@ -1148,6 +1150,7 @@ const App = (() => {
       ]) +
       '</div>' +
       qualityMoatSection(d) +
+      nbScoreSection() +
       advancedModelsSection(d) +
       growthTable(g, pg, pc, roe) +
       duPontTable(dupont) +
@@ -1327,6 +1330,30 @@ const App = (() => {
   // direction (rising/falling/stable) with a plain-language takeaway —
   // the multi-period data was always there, just buried in raw tables at
   // the bottom of the page where nobody reads it as a trend.
+  // NB Score detail card — reads from the already-computed state.nbScore
+  // (built in recomputeVerdict from both chart and fundamental data) rather
+  // than recomputing, so this can never disagree with the badge above it.
+  function nbScoreSection() {
+    const nb = state.nbScore;
+    if (!nb) return '';
+    const rows = nb.checks
+      .filter((c) => c.pass !== null)
+      .map(
+        (c) =>
+          '<li style="color:' + (c.pass ? 'var(--green)' : 'var(--red)') + '">' +
+          (c.pass ? '✓ ' : '✗ ') + c.label + '</li>'
+      )
+      .join('');
+    return (
+      '<div class="card" style="margin-top:14px">' +
+      '<h3>NB Score: ' + nb.score + ' / ' + nb.max + ' — ' + nb.tag + '</h3>' +
+      '<p style="font-size:11px;color:var(--text-muted);margin-bottom:8px">' +
+      'A Piotroski-style checklist for long-term investors: 3 chart-based checks + 7 fundamental checks. ' +
+      'See the Learn tab for what each check means.</p>' +
+      '<ul class="bull-list" style="list-style:none;padding:0">' + rows + '</ul></div>'
+    );
+  }
+
   function qualityMoatSection(d) {
     const t = d.tables || {};
     const candidates = [
@@ -2281,6 +2308,15 @@ const App = (() => {
         '<div class="vb-reason">' + val.reasons.slice(0, 2).join(' ') + '</div></div>'
       );
     }
+    const nb = state.nbScore;
+    if (nb) {
+      badges.push(
+        '<div class="verdict-badge ' + nb.cssClass + '">' +
+        '<div class="vb-label">NB Score</div>' +
+        '<div class="vb-tag">' + nb.score + ' / ' + nb.max + ' — ' + nb.tag + '</div>' +
+        '<div class="vb-reason">' + nb.checks.filter((c) => c.pass !== null).length + ' checks evaluated (3 chart + 7 fundamental)</div></div>'
+      );
+    }
     host.innerHTML = badges.join('');
   }
 
@@ -2752,6 +2788,9 @@ const App = (() => {
           kijun: ichi.kijun[i]
         };
       }
+      const lastRow = state.df[state.df.length - 1];
+      verdictInfo.sma200 = lastRow.sma200;
+      verdictInfo.macdHist = lastRow.macdHist;
 
       state.verdict = VerdictEngine.analyse(state.df, verdictInfo);
       if (state.verdict && state.rawInput) {
@@ -2769,6 +2808,7 @@ const App = (() => {
     state.longTermVerdict = state.sheet ? VerdictEngine.analyseLongTerm(verdictInfo) : null;
     state.riskVerdict = VerdictEngine.riskLevel(verdictInfo);
     state.valuationVerdict = state.sheet ? VerdictEngine.valuationVerdict(verdictInfo) : null;
+    state.nbScore = VerdictEngine.nbScore(verdictInfo);
     state.bottomLine = synthesizeBottomLine();
   }
 
