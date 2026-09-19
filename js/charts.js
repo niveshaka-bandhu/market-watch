@@ -55,20 +55,22 @@ const Charts = (() => {
     const data = daysToShow ? df.slice(-daysToShow) : df;
     const dates = data.map(r => r.date);
 
-    const accentLine = isLight ? '#3a2d7f' : '#8b7fd6';
-    const accentFill = isLight ? 'rgba(58,45,127,0.06)' : 'rgba(139,127,214,0.08)';
+    const netUp = data.length > 1 ? data[data.length - 1].close >= data[0].close : true;
+    const lineColor = netUp ? '#22c55e' : '#ef4444';
+    const fillColor = netUp ? 'rgba(34,197,94,0.12)' : 'rgba(239,68,68,0.12)';
 
+    const closes = data.map(r => r.close);
     const priceTrace =
       chartType === 'line'
         ? {
             type: 'scatter',
             mode: 'lines',
             x: dates,
-            y: data.map(r => r.close),
+            y: closes,
             name: 'Price',
-            line: { color: accentLine, width: 1.8 },
+            line: { color: lineColor, width: 1.8 },
             fill: 'tozeroy',
-            fillcolor: accentFill
+            fillcolor: fillColor
           }
         : {
             type: 'candlestick',
@@ -261,7 +263,21 @@ const Charts = (() => {
         tickformat: ',.0f',
         hoverformat: ',.2f',
         separatethousands: true,
-        domain: [0.24, 1]
+        domain: [0.24, 1],
+        // A 'tozeroy' fill trace makes Plotly's autorange extend the axis
+        // down to include 0 by default, squishing the actual price detail
+        // into a thin strip at the top with a huge, weirdly-proportioned
+        // fill wedge below it. Pinning an explicit range close to the
+        // visible data's own min/max keeps the fill looking like a normal
+        // gradient fading toward the bottom of the chart, not toward zero.
+        ...(chartType === 'line' && closes.length
+          ? (() => {
+              const lo = Math.min(...closes);
+              const hi = Math.max(...closes);
+              const pad = (hi - lo) * 0.1 || hi * 0.05 || 1;
+              return { range: [lo - pad, hi + pad], autorange: false };
+            })()
+          : {})
       },
       xaxis2: {
         ...layoutBase.xaxis,
@@ -354,8 +370,58 @@ const Charts = (() => {
     Plotly.newPlot('bt-chart', traces, layout, { responsive: true, displayModeBar: false });
   }
 
+  // P/E and P/B charts — same container as the price chart, just a
+  // different mode. Simpler than priceChart: no candles/volume/overlays,
+  // just the ratio line plus a dashed average-of-period reference line
+  // (same idea as Screener's own PE/PB chart).
+  function ratioChart(dates, values, label, targetId = 'price-chart') {
+    if (typeof Plotly === 'undefined') return;
+    if (!dates || !dates.length) return;
+    const valid = values.filter((v) => v != null);
+    const avg = valid.length ? valid.reduce((a, b) => a + b, 0) / valid.length : null;
+    const accentLine = isLight ? '#3a2d7f' : '#8b7fd6';
+
+    const traces = [
+      {
+        type: 'scatter',
+        mode: 'lines',
+        x: dates,
+        y: values,
+        name: label,
+        line: { color: accentLine, width: 1.8 },
+        connectgaps: true
+      }
+    ];
+    if (avg != null) {
+      traces.push({
+        type: 'scatter',
+        mode: 'lines',
+        x: [dates[0], dates[dates.length - 1]],
+        y: [avg, avg],
+        name: 'Average ' + label,
+        line: { color: '#f97316', width: 1.2, dash: 'dash' }
+      });
+    }
+
+    const isFullscreen = targetId.replace(/^#/, '') === 'price-chart-fullscreen';
+    const layout = {
+      ...layoutBase,
+      ...(isFullscreen ? { autosize: true } : { height: 420 }),
+      xaxis: {
+        ...layoutBase.xaxis,
+        type: 'date',
+        autorange: true,
+        rangebreaks: [{ pattern: 'day of week', bounds: [6, 1] }]
+      },
+      yaxis: { ...layoutBase.yaxis, title: label }
+    };
+
+    Plotly.newPlot(targetId.replace(/^#/, ''), traces, layout, { responsive: true, displayModeBar: false });
+  }
+
   return {
     priceChart,
+    ratioChart,
     monteCarloChart,
     backtestChart
   };
