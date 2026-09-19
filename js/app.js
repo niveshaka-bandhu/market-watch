@@ -5,6 +5,9 @@ const SHEETS_API = 'https://script.google.com/macros/s/AKfycbxgR0EC7xaqe9H0Wx9gG
 // browser gives up on a slow IMPORTHTML scrape before the server does, and
 // the (eventually correct) response arrives too late to be used.
 const SHEETS_ANALYSE_TIMEOUT_MS = 185000;
+// Your GitHub Pages URL for this app — shown at the end of the shared text
+// report so whoever receives it can open the app themselves.
+const APP_URL = 'https://niveshaka-bandhu.github.io/market-watch/';
 
 const App = (() => {
   let state = {
@@ -274,6 +277,47 @@ const App = (() => {
       doc.setTextColor(0, 0, 0);
     }
 
+    // Compact grid for the raw scraped tables (Quarterly Results, P&L,
+    // Balance Sheet, Cash Flow, Ratios, Shareholding Pattern) — capped to
+    // the most recent maxCols periods so columns stay wide enough to read
+    // at page width instead of dumping a decade of illegible columns.
+    function pdfTable(title, table, maxCols) {
+      if (!table || !table.rows || !table.rows.length) return;
+      const headers = table.headers || [];
+      let cols = [];
+      for (let c = 0; c < headers.length; c++) if (headers[c]) cols.push(c);
+      if (maxCols && cols.length > maxCols) cols = cols.slice(-maxCols);
+      if (!cols.length) return;
+
+      heading(title, 11);
+      const labelW = 118;
+      const colW = (pageW - margin * 2 - labelW) / cols.length;
+      const rowH = 12;
+
+      ensureSpace(rowH * 2);
+      doc.setFontSize(7.5);
+      doc.setFont(undefined, 'bold');
+      cols.forEach((c, i) => {
+        doc.text(String(headers[c] || ''), margin + labelW + i * colW, y, { maxWidth: colW - 3 });
+      });
+      doc.setFont(undefined, 'normal');
+      y += rowH;
+      doc.setDrawColor(210, 210, 210);
+      doc.line(margin, y - 9, pageW - margin, y - 9);
+
+      table.rows.forEach((row) => {
+        ensureSpace(rowH);
+        doc.setFontSize(7.5);
+        doc.text(String(row.label || ''), margin, y, { maxWidth: labelW - 4 });
+        cols.forEach((c, i) => {
+          const val = row.cells && row.cells[c] != null ? String(row.cells[c]) : '';
+          doc.text(val, margin + labelW + i * colW, y, { maxWidth: colW - 3 });
+        });
+        y += rowH;
+      });
+      y += 8;
+    }
+
     function sectionBanner(text) {
       ensureSpace(30);
       y += 6;
@@ -363,7 +407,7 @@ const App = (() => {
     if (typeof Plotly !== 'undefined' && $('#price-chart')) {
       try {
         const imgData = await Plotly.toImage('price-chart', { format: 'png', width: 700, height: 350 });
-        const w = pageW - margin * 2;
+        const w = Math.min(300, pageW - margin * 2); // small — most of the page is for data, not the chart
         const h = (w * 350) / 700;
         ensureSpace(h + 30);
         heading('Price Chart', 13);
@@ -371,6 +415,22 @@ const App = (() => {
         y += h + 16;
       } catch (e) {
         console.warn('Chart export skipped', e);
+      }
+    }
+
+    if (lastRow) {
+      const techLines = [];
+      if (lastRow.close != null) techLines.push('Close: Rs.' + fmt(lastRow.close));
+      if (lastRow.sma50 != null) techLines.push('SMA50: Rs.' + fmt(lastRow.sma50));
+      if (lastRow.sma200 != null) techLines.push('SMA200: Rs.' + fmt(lastRow.sma200));
+      if (lastRow.rsi != null) techLines.push('RSI(14): ' + lastRow.rsi.toFixed(1));
+      if (lastRow.macd != null) techLines.push('MACD: ' + lastRow.macd.toFixed(2));
+      if (lastRow.macdHist != null) techLines.push('MACD Hist: ' + lastRow.macdHist.toFixed(2));
+      if (lastRow.volume != null) techLines.push('Volume: ' + Math.round(lastRow.volume).toLocaleString('en-IN'));
+      if (techLines.length) {
+        heading('Technical Snapshot', 12);
+        para(techLines.join('    |    '));
+        y += 8;
       }
     }
 
@@ -411,11 +471,23 @@ const App = (() => {
     }
 
     const keyMetricLines = [];
+    if (sn2.currentPrice != null) keyMetricLines.push('Price: Rs.' + fmt(sn2.currentPrice));
     if (d.trailingEps != null) keyMetricLines.push('TTM EPS: Rs.' + fmt(d.trailingEps));
     if (d.bookValue != null) keyMetricLines.push('Book Value: Rs.' + fmt(d.bookValue));
+    if (sn2.currentPrice != null && d.bookValue > 0) keyMetricLines.push('P/B: ' + fmt(sn2.currentPrice / d.bookValue, 2));
+    if (sn2.dividendYield != null) keyMetricLines.push('Div Yield: ' + sn2.dividendYield + '%');
     if (d.freeCashflowCr != null) keyMetricLines.push('FCF: Rs.' + fmt(d.freeCashflowCr, 0) + ' Cr.');
+    if (d.cfoCr != null) keyMetricLines.push('CFO: Rs.' + fmt(d.cfoCr, 0) + ' Cr.');
     if (d.salesTtmCr != null) keyMetricLines.push('Sales TTM: Rs.' + fmt(d.salesTtmCr, 0) + ' Cr.');
     if (d.patTtmCr != null) keyMetricLines.push('PAT TTM: Rs.' + fmt(d.patTtmCr, 0) + ' Cr.');
+    if (d.equityCapitalCr != null) keyMetricLines.push('Equity Capital: Rs.' + fmt(d.equityCapitalCr, 0) + ' Cr.');
+    if (d.reservesCr != null) keyMetricLines.push('Reserves: Rs.' + fmt(d.reservesCr, 0) + ' Cr.');
+    if (d.borrowingsCr != null) keyMetricLines.push('Borrowings: Rs.' + fmt(d.borrowingsCr, 0) + ' Cr.');
+    if (d.totalAssetsCr != null) keyMetricLines.push('Total Assets: Rs.' + fmt(d.totalAssetsCr, 0) + ' Cr.');
+    if (state.df) {
+      const wk52 = Indicators.week52Range(state.df);
+      if (wk52) keyMetricLines.push('52W Range: Rs.' + fmt(wk52.low) + ' - Rs.' + fmt(wk52.high));
+    }
     if (keyMetricLines.length) {
       heading('Key Metrics', 12);
       para(keyMetricLines.join('    |    '));
@@ -424,13 +496,22 @@ const App = (() => {
 
     const g = d.salesGrowth || {};
     const pg = d.profitGrowth || {};
+    const pc = d.priceCagr || {};
+    const roeG = d.roe || {};
     const growthLines = [];
-    if (g.ttm != null) growthLines.push('Sales growth (TTM): ' + g.ttm + '%');
-    if (pg.ttm != null) growthLines.push('Profit growth (TTM): ' + pg.ttm + '%');
-    if (g.y5 != null) growthLines.push('Sales growth (5Y): ' + g.y5 + '%');
-    if (pg.y5 != null) growthLines.push('Profit growth (5Y): ' + pg.y5 + '%');
+    if (g.ttm != null) growthLines.push('Sales (TTM): ' + g.ttm + '%');
+    if (g.y3 != null) growthLines.push('Sales (3Y): ' + g.y3 + '%');
+    if (g.y5 != null) growthLines.push('Sales (5Y): ' + g.y5 + '%');
+    if (g.y10 != null) growthLines.push('Sales (10Y): ' + g.y10 + '%');
+    if (pg.ttm != null) growthLines.push('Profit (TTM): ' + pg.ttm + '%');
+    if (pg.y3 != null) growthLines.push('Profit (3Y): ' + pg.y3 + '%');
+    if (pg.y5 != null) growthLines.push('Profit (5Y): ' + pg.y5 + '%');
+    if (pg.y10 != null) growthLines.push('Profit (10Y): ' + pg.y10 + '%');
+    if (pc.y3 != null) growthLines.push('Price CAGR (3Y): ' + pc.y3 + '%');
+    if (pc.y5 != null) growthLines.push('Price CAGR (5Y): ' + pc.y5 + '%');
+    if (roeG.last != null) growthLines.push('ROE (Last Yr): ' + roeG.last + '%');
     if (growthLines.length) {
-      heading('Growth', 12);
+      heading('Growth (Sales / Profit / Price / ROE)', 12);
       para(growthLines.join('    |    '));
       y += 8;
     }
@@ -449,17 +530,38 @@ const App = (() => {
     const piotroski = piotroskiFScore(d);
     if (piotroski) {
       heading('Piotroski F-Score: ' + piotroski.score + ' / ' + piotroski.max, 12);
-      y += 4;
+      const evaluated = piotroski.checks.filter((c) => c.pass !== null);
+      bulletList(
+        evaluated.map((c) => (c.pass ? '✓ ' : '✗ ') + c.label),
+        [60, 60, 60]
+      );
+      y += 6;
     }
 
+    const graham = d.trailingEps > 0 && d.bookValue > 0 ? Math.sqrt(22.5 * d.trailingEps * d.bookValue) : null;
     const gf = grahamFormulaFairValue(d);
     const lv = lynchFairValue(d);
+    const acqM = acquirersMultiple(d, sn2);
+    const magicY = magicFormulaYield(d, sn2);
+    const price = sn2.currentPrice;
+    function gapPct(fv) {
+      return fv && price ? (((fv - price) / price) * 100).toFixed(1) + '%' : null;
+    }
     const fvLines = [];
-    if (gf) fvLines.push('Graham Formula: Rs.' + fmt(gf.value) + (gf.floored ? ' (5% growth floor used)' : ''));
-    if (lv) fvLines.push('Peter Lynch: Rs.' + fmt(lv.value) + (lv.floored ? ' (5% growth floor used)' : ''));
+    if (graham != null) fvLines.push('Graham Number: Rs.' + fmt(graham) + (gapPct(graham) ? ' (' + gapPct(graham) + ' vs price)' : ''));
+    if (gf) fvLines.push('Graham Formula: Rs.' + fmt(gf.value) + (gapPct(gf.value) ? ' (' + gapPct(gf.value) + ' vs price)' : '') + (gf.floored ? ' [floored]' : ''));
+    if (lv) fvLines.push('Peter Lynch: Rs.' + fmt(lv.value) + (gapPct(lv.value) ? ' (' + gapPct(lv.value) + ' vs price)' : '') + (lv.floored ? ' [floored]' : ''));
     if (fvLines.length) {
-      heading('Fair Value Estimates', 12);
-      para(fvLines.join('    |    '));
+      heading('Fair Value Estimates (gap = upside/downside to current price)', 12);
+      para(fvLines.join('\n'));
+      y += 8;
+    }
+    const deepValueLines = [];
+    if (acqM) deepValueLines.push("Acquirer's Multiple: " + acqM.multiple.toFixed(2) + 'x' + (acqM.cheap ? ' (deep-value range, <6x)' : ''));
+    if (magicY != null) deepValueLines.push('Magic Formula Earnings Yield: ' + magicY.toFixed(2) + '%');
+    if (sn2.stockPE != null && d.bookValue > 0 && price) deepValueLines.push('P/E: ' + fmt(sn2.stockPE) + '   P/B: ' + fmt(price / d.bookValue, 2));
+    if (deepValueLines.length) {
+      para(deepValueLines.join('    |    '));
       y += 8;
     }
 
@@ -550,6 +652,18 @@ const App = (() => {
       }
     }
 
+    // ===================== FINANCIAL STATEMENTS =====================
+    doc.addPage();
+    y = 50;
+    sectionBanner('FINANCIAL STATEMENTS (most recent periods)');
+    const dt = d.tables || {};
+    pdfTable('Quarterly Results', dt.quarterly, 6);
+    pdfTable('Profit & Loss', dt.profitLoss, 6);
+    pdfTable('Balance Sheet', dt.balanceSheet, 5);
+    pdfTable('Cash Flow', dt.cashFlow, 5);
+    pdfTable('Ratios', dt.ratios, 5);
+    pdfTable('Shareholding Pattern', dt.shareholding, 8);
+
     // Disclaimer
     ensureSpace(50);
     y += 6;
@@ -560,8 +674,11 @@ const App = (() => {
     doc.setTextColor(140, 140, 140);
     para(
       'This report is generated automatically from Screener.in and Yahoo Finance data using formula-based ' +
-        'models (Graham, Peter Lynch, DuPont, Piotroski, technical indicators). It is not investment advice. ' +
-        'Verify all figures independently before making any investment decision.',
+        'models (Graham, Peter Lynch, DuPont, Piotroski, Altman Z-Score, ROIC/WACC, technical indicators). ' +
+        'Altman Z-Score and ROIC/WACC use approximated inputs and assumptions (see Advanced Financial Models ' +
+        'note above) and are not meaningful for banks/NBFCs/financial companies. This is not investment advice. ' +
+        'Verify all figures independently, ideally against the source Screener.in page, before making any ' +
+        'investment decision.',
       8
     );
 
@@ -635,6 +752,8 @@ const App = (() => {
     }
 
     lines.push('_Not investment advice. Verify independently before deciding._');
+    lines.push('');
+    lines.push('📱 Generated using *Indian Quant Verdict* — analyse any NSE/BSE stock free: ' + APP_URL);
     return lines.join('\n');
   }
 
@@ -2811,10 +2930,15 @@ const App = (() => {
     // Clear valuation calculator inputs so a stale value from the previous
     // ticker (or a failed first-load fallback) can never block this
     // ticker's auto-fill — see renderValuationWidgets' "!el.value" checks.
-    ['#graham-eps', '#graham-bvps', '#gf-eps', '#gf-growth', '#pl-eps', '#pl-growth'].forEach((sel) => {
+    ['#graham-eps', '#graham-bvps', '#gf-eps', '#gf-growth', '#pl-eps', '#pl-growth', '#cc-price', '#cc-cagr'].forEach((sel) => {
       const el = $(sel);
       if (el) el.value = '';
     });
+    // Clear the sticky LTP/P/E header too — it only gets refreshed once the
+    // new ticker's data arrives, so without this it keeps showing the
+    // previous ticker's price/P/E for the entire load, which reads as if
+    // the new search did nothing yet.
+    updateStickyQuote(null);
 
     hide($('#main-content'));
     hide($('#error-box'));
