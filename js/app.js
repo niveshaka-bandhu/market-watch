@@ -7,7 +7,7 @@ const SHEETS_API = 'https://script.google.com/macros/s/AKfycbxgR0EC7xaqe9H0Wx9gG
 const SHEETS_ANALYSE_TIMEOUT_MS = 185000;
 // Your GitHub Pages URL for this app — shown at the end of the shared text
 // report so whoever receives it can open the app themselves.
-const APP_URL = 'https://niveshaka-bandhu.github.io/market-watch/';
+const APP_URL = 'https://YOUR-USERNAME.github.io/YOUR-REPO/';
 
 const App = (() => {
   let state = {
@@ -2202,6 +2202,53 @@ const App = (() => {
       '<div class="bl-reason">' + bl.reason + '</div>';
   }
 
+  // Builds the 52-week range gradient bar's inner HTML — shared by the
+  // prominent top-of-page widget and the live example in the Learn tab, so
+  // they're guaranteed to look identical.
+  function week52BarHtml(low, high, current) {
+    if (low == null || high == null || current == null || high <= low) return '';
+    const pct = Math.max(0, Math.min(100, ((current - low) / (high - low)) * 100));
+    const fromHigh = ((current - high) / high) * 100; // 0 or negative
+    const badgeUp = fromHigh >= 0;
+    return (
+      '<div class="w52-header"><span>52-WEEK RANGE</span>' +
+      '<span class="w52-badge' + (badgeUp ? ' up' : '') + '">' + (badgeUp ? '+' : '') + fromHigh.toFixed(1) + '% from High</span></div>' +
+      '<div class="w52-bar"><div class="w52-dot" style="left:' + pct.toFixed(1) + '%"></div></div>' +
+      '<div class="w52-labels"><span>L: ' + formatINR(low) + '</span>' +
+      '<span class="w52-current">' + formatINR(current) + '</span>' +
+      '<span>H: ' + formatINR(high) + '</span></div>'
+    );
+  }
+
+  // Prominent 52-week range widget near the top of the page, next to the
+  // verdicts — previously this data only appeared buried in the Risk &
+  // Return section further down.
+  function renderW52Highlight() {
+    const host = $('#w52-highlight');
+    if (!host) return;
+    if (!state.df || !state.df.length) {
+      host.innerHTML = '';
+      return;
+    }
+    const wk52 = Indicators.week52Range(state.df);
+    if (!wk52) {
+      host.innerHTML = '';
+      return;
+    }
+    const current = state.info && state.info.currentPrice != null ? state.info.currentPrice : state.df[state.df.length - 1].close;
+    host.innerHTML = '<div class="w52-widget">' + week52BarHtml(wk52.low, wk52.high, current) + '</div>';
+  }
+
+  // Illustrative example for the Learn tab's 52-Week Range entry — static
+  // numbers (matching a real reference example) since Learn works without
+  // any ticker loaded.
+  function renderW52GlossaryExample() {
+    const host = $('#w52-example');
+    if (!host || host.dataset.rendered) return;
+    host.innerHTML = '<div class="w52-widget">' + week52BarHtml(1226.4, 1611.8, 1226.4) + '</div>';
+    host.dataset.rendered = '1';
+  }
+
   function renderVerdictBadges() {
     const host = $('#extra-verdicts');
     if (!host) return;
@@ -2250,6 +2297,7 @@ const App = (() => {
       }
       renderBottomLine();
       renderVerdictBadges();
+      renderW52Highlight();
       renderValuationWidgets(null);
       renderSheetDashboard(state.sheet);
       renderVerdictHistory(state.rawInput);
@@ -2291,6 +2339,7 @@ const App = (() => {
     $('#m-bull').textContent = (v.bullRatio * 100).toFixed(1) + '%';
     renderBottomLine();
     renderVerdictBadges();
+    renderW52Highlight();
 
     if (state.df) drawPriceChart();
     renderCandlestickPatterns(state.df);
@@ -2672,6 +2721,8 @@ const App = (() => {
       if (state.sheet.freeCashflowCr != null && sn.marketCapCr != null && sn.marketCapCr > 0) {
         verdictInfo.fcfYield = (state.sheet.freeCashflowCr / sn.marketCapCr) * 100;
       }
+      verdictInfo.profitGrowthY3 = state.sheet.profitGrowth && state.sheet.profitGrowth.y3 != null ? state.sheet.profitGrowth.y3 : null;
+      verdictInfo.salesGrowthY3 = state.sheet.salesGrowth && state.sheet.salesGrowth.y3 != null ? state.sheet.salesGrowth.y3 : null;
 
       // Advanced financial models — Altman Z-Score, Acquirer's Multiple,
       // Magic Formula yield, ROIC vs WACC, Rule of 40. See each function's
@@ -3037,12 +3088,24 @@ const App = (() => {
     const radio = document.querySelector('input[name="workspace"][value="' + view + '"]');
     if (radio) radio.checked = true;
     $$('.mnav-btn[data-nav]').forEach((b) => b.classList.remove('active'));
-    const key = navKey || (view === 'market' ? 'home' : 'quality');
+    const key = navKey || (view === 'market' ? 'home' : view === 'learn' ? 'more' : 'quality');
     const navBtn = document.querySelector('.mnav-btn[data-nav="' + key + '"]');
     if (navBtn) navBtn.classList.add('active');
 
     const backHomeBtn = $('#mobile-back-home');
     if (backHomeBtn) backHomeBtn.style.display = view === 'quant' ? '' : 'none';
+
+    // Learn is static educational content — deliberately doesn't require a
+    // ticker to be loaded, so a first-time visitor can read it before ever
+    // searching for a stock.
+    if (view === 'learn') {
+      hide($('#view-market'));
+      hide($('#view-quant'));
+      show($('#view-learn'));
+      renderW52GlossaryExample();
+      return;
+    }
+    hide($('#view-learn'));
 
     if (!state.df && !state.sheet) return;
     if (view === 'market') {
@@ -3150,6 +3213,12 @@ const App = (() => {
       btn.addEventListener('click', () => {
         setWorkspace('quant');
         setTab(btn.dataset.tab);
+        closeMoreSheet();
+      });
+    });
+    $$('.more-item[data-view]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        setWorkspace(btn.dataset.view);
         closeMoreSheet();
       });
     });
