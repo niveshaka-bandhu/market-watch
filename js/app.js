@@ -7,7 +7,7 @@ const SHEETS_API = 'https://script.google.com/macros/s/AKfycbxgR0EC7xaqe9H0Wx9gG
 const SHEETS_ANALYSE_TIMEOUT_MS = 185000;
 // Your GitHub Pages URL for this app — shown at the end of the shared text
 // report so whoever receives it can open the app themselves.
-const APP_URL = 'https://YOUR-USERNAME.github.io/YOUR-REPO/';
+const APP_URL = 'https://niveshaka-bandhu.github.io/market-watch/';
 
 const App = (() => {
   let state = {
