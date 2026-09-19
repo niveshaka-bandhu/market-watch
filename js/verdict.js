@@ -438,5 +438,78 @@ const VerdictEngine = (() => {
     return { tag, cssClass, reasons };
   }
 
-  return { analyse, analyseLongTerm, riskLevel, valuationVerdict };
+  // ---------------- NB Score ----------------
+  // Piotroski-style pass/fail checklist: 3 points from chart/technical
+  // signals, 7 from fundamentals. Deliberately favors trend confirmation
+  // and momentum health over short-term trading signals on the chart side,
+  // and quality/balance-sheet/valuation checks on the fundamental side —
+  // built for long-term investors, not traders. Like Piotroski, any check
+  // that can't be evaluated (missing data) is left out of both the
+  // numerator and the denominator rather than counted as a fail.
+  function nbScore(info) {
+    const checks = [
+      {
+        label: 'Price above SMA200 (long-term uptrend)',
+        pass: info.sma200 != null && info.price != null ? info.price > info.sma200 : null
+      },
+      {
+        label: 'MACD bullish (MACD > Signal)',
+        pass: info.macdHist != null ? info.macdHist > 0 : null
+      },
+      {
+        label: 'No bearish divergence (last 40 sessions)',
+        pass: info.divergences ? !info.divergences.some((dv) => dv.type === 'bearish') : null
+      },
+      {
+        label: 'ROE ≥ 15%',
+        pass: info.returnOnEquity != null ? info.returnOnEquity >= 0.15 : null
+      },
+      {
+        label: 'Debt-to-Equity ≤ 100%',
+        pass: info.debtToEquity != null ? info.debtToEquity <= 100 : null
+      },
+      {
+        label: 'ROIC > WACC (creating value)',
+        pass: info.roicWacc ? info.roicWacc.creatingValue : null
+      },
+      {
+        label: 'Promoter holding stable or rising',
+        pass: (() => {
+          if (!info.qualityTrends) return null;
+          const p = info.qualityTrends.find((t) => t.label === 'Promoter Holding');
+          return p ? p.color !== 'var(--red)' : null;
+        })()
+      },
+      {
+        label: 'Profit growth (3Y) ≥ Sales growth (3Y)',
+        pass: info.profitGrowthY3 != null && info.salesGrowthY3 != null ? info.profitGrowthY3 >= info.salesGrowthY3 : null
+      },
+      {
+        label: 'Trading below Graham Number',
+        pass:
+          info.trailingEps > 0 && info.bookValue > 0 && info.price > 0
+            ? info.price < Math.sqrt(22.5 * info.trailingEps * info.bookValue)
+            : null
+      },
+      {
+        label: 'Altman Z-Score in Safe/Grey Zone',
+        pass: info.altman ? info.altman.zone !== 'Distress Zone' : null
+      }
+    ];
+
+    const evaluated = checks.filter((c) => c.pass !== null);
+    if (!evaluated.length) return null;
+    const score = evaluated.filter((c) => c.pass).length;
+    const max = evaluated.length;
+    const ratio = score / max;
+    let tag, cssClass;
+    if (ratio >= 0.8) { tag = 'Excellent'; cssClass = 'strong-buy'; }
+    else if (ratio >= 0.6) { tag = 'Good'; cssClass = 'mild-buy'; }
+    else if (ratio >= 0.4) { tag = 'Average'; cssClass = 'neutral'; }
+    else { tag = 'Weak'; cssClass = 'sell'; }
+
+    return { score, max, tag, cssClass, checks };
+  }
+
+  return { analyse, analyseLongTerm, riskLevel, valuationVerdict, nbScore };
 })();
