@@ -45,6 +45,10 @@
             <input type="radio" name="workspace" value="quant" />
             <span>🧬 Quantitative Deep-Dive</span>
           </label>
+          <label>
+            <input type="radio" name="workspace" value="learn" />
+            <span>📚 Learn</span>
+          </label>
         </div>
       </div>
 
@@ -100,6 +104,7 @@
           Detail behind the Bottom Line above — a badge disagreeing with it doesn't override it.
         </p>
         <div id="extra-verdicts" class="extra-verdicts"></div>
+        <div id="w52-highlight"></div>
 
         <div class="two-col">
           <div class="card">
@@ -453,6 +458,368 @@
       </div>
     </div>
 
+    <!-- ========== LEARN TAB (works with no ticker loaded) ========== -->
+    <div id="view-learn" class="hidden">
+      <h1 style="font-size:20px;margin-bottom:6px">📚 Understanding This Dashboard</h1>
+      <p style="font-size:13px;color:var(--text-muted);margin-bottom:20px;line-height:1.6">
+        A plain-language guide to every score, indicator, and formula used here — what it means,
+        how it's calculated, and how to read a good value vs. a bad one. Tap any item to expand it.
+      </p>
+
+      <div class="glossary-section">
+        <h3>🎯 The Verdicts</h3>
+
+        <details class="glossary-item">
+          <summary>Bottom Line</summary>
+          <div class="glossary-body">
+            The single reconciled answer at the very top of the page. It combines the Long-Term
+            Investment Verdict, Valuation Verdict, Risk Level, and Master Verdict into one plain
+            sentence, so you never have to guess what to do when the badges below it disagree with
+            each other.
+            <div class="g-read"><b>How to read it:</b> if a colored badge further down seems to
+            contradict this line, trust this line — it was built specifically to account for that
+            disagreement, not the other way around.</div>
+          </div>
+        </details>
+
+        <details class="glossary-item">
+          <summary>Master Verdict</summary>
+          <div class="glossary-body">
+            Blends short-term technicals (RSI, MACD, candlestick patterns, breakouts) with
+            fundamentals (ROE, Piotroski, Graham/Lynch gap) into one bull/bear score.
+            <div class="g-read"><b>Best for:</b> "does today's price action and the underlying
+            business both look good right now." Not built specifically for long-term holding —
+            see the Long-Term Investment Verdict for that.</div>
+          </div>
+        </details>
+
+        <details class="glossary-item">
+          <summary>Long-Term Investment Verdict</summary>
+          <div class="glossary-body">
+            Fundamentals and quality trends <b>only</b> — deliberately ignores RSI, MACD,
+            candlesticks, and every short-term technical signal, so a stock's long-term case isn't
+            diluted by this week's price action.
+            <div class="g-read"><b>Best for:</b> buy-and-hold decisions, not entry timing.</div>
+          </div>
+        </details>
+
+        <details class="glossary-item">
+          <summary>Risk Level (Low / Medium / High)</summary>
+          <div class="glossary-body">
+            Based on volatility, historical max drawdown, Sharpe ratio, and debt — says nothing
+            about direction.
+            <div class="g-read"><b>How to read it:</b> a "High" risk stock can still carry a "Buy"
+            verdict — Risk Level tells you how much it might swing, not whether to buy it. Use it
+            to decide position size, not whether to act.</div>
+          </div>
+        </details>
+
+        <details class="glossary-item">
+          <summary>Valuation Verdict (Cheap / Fair / Expensive)</summary>
+          <div class="glossary-body">
+            Based on the Graham/Lynch fair-value gap, PEG ratio, and free cash flow yield — says
+            nothing about business quality.
+            <div class="g-read"><b>How to read it:</b> a stock can be "Cheap" and still be a bad
+            business (cheap for a reason). Always read this alongside the Long-Term Investment
+            Verdict, not on its own.</div>
+          </div>
+        </details>
+
+        <details class="glossary-item">
+          <summary>NB Score</summary>
+          <div class="glossary-body">
+            A 10-point Piotroski-style checklist built for long-term investors: 3 points from the
+            chart (price above its 200-day average, MACD bullish, no bearish divergence in the
+            last 40 sessions) and 7 from fundamentals (ROE, debt levels, ROIC vs WACC, promoter
+            holding direction, profit growth vs sales growth, price vs Graham Number, Altman
+            Z-Score zone).
+            <div class="g-formula">Score = number of checks passed / number of checks that could be evaluated</div>
+            <div class="g-read"><b>How to read it:</b> 8+/10 <b>Excellent</b>, 6-7 <b>Good</b>,
+            4-5 <b>Average</b>, below 4 <b>Weak</b>. A check that can't be evaluated (missing data)
+            is left out entirely rather than counted as a fail — so the score is always "out of
+            however many checks actually had data," same as Piotroski.</div>
+          </div>
+        </details>
+      </div>
+
+      <div class="glossary-section">
+        <h3>📈 Technical Indicators</h3>
+
+        <details class="glossary-item">
+          <summary>52-Week Range</summary>
+          <div class="glossary-body">
+            Shows where today's price sits between its lowest and highest close over the past year.
+            <div id="w52-example" style="margin:10px 0"></div>
+            <div class="g-formula">Position on bar = (Current − Low) / (High − Low) × 100%</div>
+            <div class="g-read">Near the green end = trading close to its 52-week high; near the
+            red end = trading close to its 52-week low. The badge shows exactly how far below (or
+            above) the high the current price is.</div>
+          </div>
+        </details>
+
+        <details class="glossary-item">
+          <summary>RSI (Relative Strength Index)</summary>
+          <div class="glossary-body">
+            A 0–100 momentum gauge comparing the size of recent gains to recent losses over 14 days.
+            <div class="g-formula">RSI = 100 − 100 / (1 + Avg Gain / Avg Loss)</div>
+            <div class="g-read">Above 70 = <b>overbought</b> (momentum stretched, may cool off).
+            Below 30 = <b>oversold</b> (may be due for a bounce). 40–65 is considered a healthy,
+            non-extreme zone.</div>
+          </div>
+        </details>
+
+        <details class="glossary-item">
+          <summary>MACD (Moving Average Convergence Divergence)</summary>
+          <div class="glossary-body">
+            The gap between a fast (12-day) and slow (26-day) moving average, with its own 9-day
+            "signal line" smoothing that gap.
+            <div class="g-formula">MACD = EMA(12) − EMA(26)  ·  Histogram = MACD − Signal</div>
+            <div class="g-read">MACD above its signal line (positive histogram) = <b>bullish</b>
+            momentum; below = <b>bearish</b>.</div>
+          </div>
+        </details>
+
+        <details class="glossary-item">
+          <summary>Moving Averages (SMA / EMA)</summary>
+          <div class="glossary-body">
+            The average closing price over the last N days — SMA weights every day equally, EMA
+            weights recent days more heavily.
+            <div class="g-read">Price above its 200-day average is a classic long-term uptrend
+            signal; below is a downtrend. A "Golden Cross" (50-day average crossing above the
+            200-day) is a widely-watched bullish trend-change signal.</div>
+          </div>
+        </details>
+
+        <details class="glossary-item">
+          <summary>Bollinger Bands</summary>
+          <div class="glossary-body">
+            A band plotted above and below a moving average, sized by recent volatility (standard
+            deviation).
+            <div class="g-read">Price hitting the upper band = statistically stretched to the
+            upside short-term; the lower band = stretched to the downside. Bands squeezing
+            together often precede a sharp move in either direction.</div>
+          </div>
+        </details>
+
+        <details class="glossary-item">
+          <summary>Ichimoku Cloud</summary>
+          <div class="glossary-body">
+            A cluster of five lines forming a shaded "cloud" that shows trend direction, momentum,
+            and support/resistance all at once.
+            <div class="g-read">Price above the cloud = <b>bullish</b> trend; below = <b>bearish</b>;
+            inside the cloud = no clear trend, treated as a caution zone.</div>
+          </div>
+        </details>
+
+        <details class="glossary-item">
+          <summary>Fibonacci Retracement</summary>
+          <div class="glossary-body">
+            Horizontal lines (23.6%, 38.2%, 50%, 61.8%) drawn between a recent swing high and low,
+            based on the observation that pullbacks often stall near these specific fractions of
+            the prior move.
+            <div class="g-read">Used as potential support (in an uptrend pullback) or resistance
+            (in a downtrend bounce) levels — not a guarantee, just a commonly-watched zone.</div>
+          </div>
+        </details>
+
+        <details class="glossary-item">
+          <summary>Stochastic Oscillator &amp; Williams %R</summary>
+          <div class="glossary-body">
+            Both compare today's close to its recent trading range, similar in spirit to RSI.
+            <div class="g-read">Stochastic above 80, or Williams %R near 0 = <b>overbought</b>.
+            Stochastic below 20, or Williams %R near -100 = <b>oversold</b>.</div>
+          </div>
+        </details>
+
+        <details class="glossary-item">
+          <summary>Candlestick Patterns &amp; Breakout/Breakdown</summary>
+          <div class="glossary-body">
+            Candlestick patterns (hammer, engulfing, doji, etc.) are specific price-bar shapes
+            traders associate with short-term reversals or continuations. A breakout/breakdown is
+            price moving decisively beyond a recent high/low, often flagged when accompanied by
+            above-average volume.
+          </div>
+        </details>
+
+        <details class="glossary-item">
+          <summary>Divergence (RSI / MACD)</summary>
+          <div class="glossary-body">
+            When price makes a new high (or low) but RSI or MACD <b>doesn't</b> confirm it with a
+            new high (or low) of its own.
+            <div class="g-read"><b>Bearish divergence</b> (price up, momentum down) is an early
+            warning a rally may be losing steam. <b>Bullish divergence</b> is the mirror case
+            during a decline.</div>
+          </div>
+        </details>
+      </div>
+
+      <div class="glossary-section">
+        <h3>💰 Valuation Models</h3>
+
+        <details class="glossary-item">
+          <summary>P/E, P/B, and PEG Ratio</summary>
+          <div class="glossary-body">
+            <div class="g-formula">P/E = Price / EPS   ·   P/B = Price / Book Value per Share   ·   PEG = P/E / Growth Rate</div>
+            <div class="g-read">P/E is "how many years of current profit you're paying for."
+            PEG adjusts for growth — a high P/E can still be reasonable if growth is high enough;
+            PEG below 1 is the classic "cheap relative to growth" threshold.</div>
+          </div>
+        </details>
+
+        <details class="glossary-item">
+          <summary>Graham Number &amp; Graham Formula</summary>
+          <div class="glossary-body">
+            Two fair-value formulas from Benjamin Graham (Warren Buffett's teacher).
+            <div class="g-formula">Graham Number = √(22.5 × EPS × Book Value)</div>
+            <div class="g-formula">Graham Formula = EPS × (8.5 + 2 × Growth Rate)</div>
+            <div class="g-read">Trading below either suggests a margin of safety. A negative
+            growth rate is floored at 5% for the Formula version, since the formula breaks down
+            with negative inputs — that floor is noted whenever it's used.</div>
+          </div>
+        </details>
+
+        <details class="glossary-item">
+          <summary>Peter Lynch Fair Value</summary>
+          <div class="glossary-body">
+            <div class="g-formula">Fair Value = EPS × Growth Rate</div>
+            <div class="g-read">Lynch's rule of thumb: a fairly-priced growth stock's P/E should
+            roughly equal its earnings growth rate. Trading well below this suggests the market
+            hasn't priced in the growth yet.</div>
+          </div>
+        </details>
+
+        <details class="glossary-item">
+          <summary>Acquirer's Multiple &amp; Magic Formula Earnings Yield</summary>
+          <div class="glossary-body">
+            Deep-value tools popularized by Joel Greenblatt and Tobias Carlisle.
+            <div class="g-formula">Acquirer's Multiple = Enterprise Value / EBIT   ·   Magic Formula Yield = EBIT / Enterprise Value</div>
+            <div class="g-read">Lower Acquirer's Multiple = cheaper on an operating-earnings
+            basis; under 6× is the classic deep-value/takeover-candidate threshold. Magic Formula
+            Yield is just its inverse, shown as a percentage.</div>
+          </div>
+        </details>
+      </div>
+
+      <div class="glossary-section">
+        <h3>🏦 Quality &amp; Financial Health</h3>
+
+        <details class="glossary-item">
+          <summary>ROE, ROCE &amp; ROIC</summary>
+          <div class="glossary-body">
+            All three measure how efficiently a company turns capital into profit — they just use
+            slightly different denominators (Shareholder Equity, Capital Employed, or Invested
+            Capital).
+            <div class="g-read">Higher, and more importantly <b>consistent over several years</b>,
+            is better. A single great year means less than a steady 15%+ over 5 years.</div>
+          </div>
+        </details>
+
+        <details class="glossary-item">
+          <summary>DuPont Analysis</summary>
+          <div class="glossary-body">
+            Breaks ROE down into three drivers to show <b>where</b> the return is actually coming from.
+            <div class="g-formula">ROE = Net Margin × Asset Turnover × Equity Multiplier</div>
+            <div class="g-read">ROE driven mainly by margin and turnover is higher quality than
+            ROE driven mainly by leverage (a high Equity Multiplier) — leverage-driven ROE is more
+            fragile in a downturn.</div>
+          </div>
+        </details>
+
+        <details class="glossary-item">
+          <summary>Piotroski F-Score</summary>
+          <div class="glossary-body">
+            A 9-point accounting-quality checklist across profitability, leverage/liquidity, and
+            operating efficiency — 1 point for each rule satisfied.
+            <div class="g-read">8–9 = financially sound; 0–2 = weak fundamentals. Built to separate
+            genuinely strong value stocks from statistically-cheap-but-weak ones.</div>
+          </div>
+        </details>
+
+        <details class="glossary-item">
+          <summary>Altman Z-Score</summary>
+          <div class="glossary-body">
+            A bankruptcy-risk formula combining five balance-sheet and income-statement ratios.
+            <div class="g-read">Above 2.99 = <b>Safe Zone</b>; 1.81–2.99 = <b>Grey Zone</b>; below
+            1.81 = <b>Distress Zone</b>. Designed for non-financial companies — not meaningful for
+            banks, NBFCs, or insurers, whose balance sheets work completely differently. This
+            app's version approximates one input (working capital) since Screener's standard view
+            doesn't report it directly — treat it as indicative, not precise.</div>
+          </div>
+        </details>
+
+        <details class="glossary-item">
+          <summary>ROIC vs. WACC</summary>
+          <div class="glossary-body">
+            Is the company earning more on its capital (ROIC) than that capital actually costs to
+            raise (WACC — Weighted Average Cost of Capital)?
+            <div class="g-read">ROIC &gt; WACC means the business is genuinely <b>creating</b>
+            shareholder value with each rupee reinvested; ROIC &lt; WACC means it's effectively
+            destroying value even if profits are growing.</div>
+          </div>
+        </details>
+
+        <details class="glossary-item">
+          <summary>Rule of 40</summary>
+          <div class="glossary-body">
+            <div class="g-formula">Rule of 40 Score = Revenue Growth % + Profit Margin %</div>
+            <div class="g-read">A score of 40+ suggests a growth business is scaling in a healthy
+            balance — not sacrificing all profitability just to grow revenue, or vice versa.</div>
+          </div>
+        </details>
+
+        <details class="glossary-item">
+          <summary>Debt-to-Equity</summary>
+          <div class="glossary-body">
+            <div class="g-formula">Debt-to-Equity = Total Borrowings / Shareholder Equity</div>
+            <div class="g-read">Lower = a more conservative balance sheet with less risk in a
+            downturn or rate spike. Above 1.0-1.5x generally warrants a closer look at why.</div>
+          </div>
+        </details>
+      </div>
+
+      <div class="glossary-section">
+        <h3>⚠️ Risk Metrics</h3>
+
+        <details class="glossary-item">
+          <summary>Sharpe Ratio</summary>
+          <div class="glossary-body">
+            <div class="g-formula">Sharpe = (Annual Return − Risk-Free Rate) / Annual Volatility</div>
+            <div class="g-read">Return earned per unit of <b>total</b> risk taken. Higher is
+            better; negative means the stock hasn't even compensated for the risk-free rate.</div>
+          </div>
+        </details>
+
+        <details class="glossary-item">
+          <summary>Sortino Ratio</summary>
+          <div class="glossary-body">
+            Like Sharpe, but only penalizes <b>downside</b> volatility — a stock that occasionally
+            jumps sharply upward isn't penalized for that "risk" the way Sharpe would.
+            <div class="g-read">A Sortino noticeably higher than the Sharpe for the same stock
+            means most of its volatility has been to the upside.</div>
+          </div>
+        </details>
+
+        <details class="glossary-item">
+          <summary>Beta &amp; Correlation (vs. Nifty 50)</summary>
+          <div class="glossary-body">
+            How much a stock tends to move relative to the overall market.
+            <div class="g-read">Beta &gt; 1 = more volatile than the Nifty 50; Beta &lt; 1 = less.
+            Correlation shows how closely it tends to move <b>in the same direction</b> as the
+            market, separate from how big those moves are.</div>
+          </div>
+        </details>
+
+        <details class="glossary-item">
+          <summary>Max Drawdown</summary>
+          <div class="glossary-body">
+            The worst peak-to-trough decline in the stock's price history over the period shown.
+            <div class="g-read">A real-world answer to "how bad could this actually get" — more
+            grounded than volatility alone, since it shows an actual historical worst case.</div>
+          </div>
+        </details>
+      </div>
+    </div>
+
     <footer>
       Indian Quant Verdict · Built for NSE/BSE · PWA-ready · Host on GitHub Pages
     </footer>
@@ -490,6 +857,7 @@
       <button type="button" class="more-item" data-tab="monte">📅 Seasonality</button>
       <button type="button" class="more-item" data-tab="backtest">🕒 Strategy Backtester</button>
       <button type="button" class="more-item" data-tab="notes">📌 Notes</button>
+      <button type="button" class="more-item" data-view="learn">📚 Learn: What These Numbers Mean</button>
     </div>
   </div>
 
