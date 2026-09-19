@@ -162,6 +162,7 @@
               <a id="tv-link" href="#" target="_blank" rel="noopener" class="analyse-btn" style="text-decoration:none;display:inline-block;padding:6px 14px;font-size:12px">
                 Open in TradingView ↗
               </a>
+              <button type="button" id="chart-type-toggle" title="Switch to candlestick view" style="background:var(--surface-2);border:1px solid var(--border);border-radius:8px;padding:6px 10px;cursor:pointer;font-size:12px;font-weight:600">🕯️ Candlestick</button>
               <button type="button" id="chart-expand-btn" title="Expand chart" style="background:var(--surface-2);border:1px solid var(--border);border-radius:8px;padding:6px 10px;cursor:pointer;font-size:14px">⛶</button>
             </div>
           </div>
@@ -826,7 +827,29 @@
   </div>
 
   <div id="chart-fullscreen" class="chart-fullscreen hidden">
-    <button type="button" id="chart-fullscreen-close">✕ Close</button>
+    <div class="chart-fs-toolbar">
+      <select id="chart-interval-fs" style="background:var(--surface-2);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:5px 8px;font-size:12px">
+        <option value="5m">5 minutes</option>
+        <option value="15m">15 minutes</option>
+        <option value="30m">30 minutes</option>
+        <option value="60m">1 hour</option>
+        <option value="D" selected>Day</option>
+        <option value="W">Week</option>
+        <option value="M">Month</option>
+      </select>
+      <div class="radio-group" id="chart-range-fs">
+        <label><input type="radio" name="chart-range-fs" value="63" /><span>3M</span></label>
+        <label><input type="radio" name="chart-range-fs" value="126" /><span>6M</span></label>
+        <label><input type="radio" name="chart-range-fs" value="260" checked /><span>1Y</span></label>
+        <label><input type="radio" name="chart-range-fs" value="520" /><span>2Y</span></label>
+        <label><input type="radio" name="chart-range-fs" value="0" /><span>5Y</span></label>
+      </div>
+      <label class="checkbox-wrap" style="margin-top:0"><input type="checkbox" id="show-bb-fs" checked /> Bollinger</label>
+      <label class="checkbox-wrap" style="margin-top:0"><input type="checkbox" id="show-fib-fs" /> Fibonacci</label>
+      <label class="checkbox-wrap" style="margin-top:0"><input type="checkbox" id="show-ichimoku-fs" /> Ichimoku</label>
+      <button type="button" id="chart-type-toggle-fs" style="background:var(--surface-2);border:1px solid var(--border);border-radius:8px;padding:5px 10px;cursor:pointer;font-size:12px;font-weight:600">🕯️ Candlestick</button>
+      <button type="button" id="chart-fullscreen-close">✕ Close</button>
+    </div>
     <div id="price-chart-fullscreen"></div>
   </div>
 
