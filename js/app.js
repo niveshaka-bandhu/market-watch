@@ -339,7 +339,8 @@ const App = (() => {
     }
 
     const ticker = state.rawInput || state.ticker || 'Stock';
-    heading(ticker + ' — Analysis Report', 18);
+    const displayName = (state.sheet && state.sheet.companyName) || ticker;
+    heading(displayName + (displayName !== ticker ? ' (' + ticker + ')' : '') + ' — Analysis Report', 18);
     doc.setFontSize(9);
     doc.setTextColor(120, 120, 120);
     doc.text('Generated ' + new Date().toLocaleString('en-IN') + '  ·  Quant Verdict', margin, y);
@@ -701,9 +702,10 @@ const App = (() => {
     const ticker = state.rawInput || state.ticker || 'Stock';
     const d = state.sheet || {};
     const sn2 = d.snapshot || {};
+    const displayName = d.companyName || ticker;
     const lines = [];
 
-    lines.push('*' + ticker + ' — Analysis Report*');
+    lines.push('*' + displayName + (displayName !== ticker ? ' (' + ticker + ')' : '') + ' — Analysis Report*');
     lines.push('_Generated ' + new Date().toLocaleDateString('en-IN') + '_');
     lines.push('');
 
@@ -1867,6 +1869,13 @@ const App = (() => {
     overlay.classList.add('open');
     overlay.classList.remove('hidden');
     state.fullscreenChart = true;
+
+    // The fullscreen toolbar's own radio group needs to reflect whatever
+    // chart type is actually active — it isn't touched by the change
+    // listener that fires when fullscreen is first opened via the compact
+    // toolbar, since that's a different <input> entirely.
+    const fsRadio = document.querySelector('input[name="chart-style-fs"][value="' + state.chartType + '"]');
+    if (fsRadio) fsRadio.checked = true;
 
     // Best-effort fullscreen + landscape lock. Neither is universally
     // supported (iOS Safari in particular has no Orientation Lock API at
@@ -3198,7 +3207,8 @@ const App = (() => {
       show($('#main-content'));
       const reportActions = $('#report-actions');
       if (reportActions) reportActions.style.display = 'flex';
-      $('#asset-title').textContent = 'Strategic Asset Intelligence Center (' + state.rawInput + ')';
+      const displayName = (state.sheet && state.sheet.companyName) || state.rawInput;
+      $('#asset-title').textContent = 'Strategic Asset Intelligence Center (' + displayName + ')';
 
       if (state.view === 'market') {
         setWorkspace('market');
@@ -3347,7 +3357,8 @@ const App = (() => {
         shareBtn.textContent = 'Preparing…';
         try {
           const text = generateTextReport();
-          const title = (state.rawInput || 'Stock') + ' Analysis Report';
+          const shareDisplayName = (state.sheet && state.sheet.companyName) || state.rawInput || 'Stock';
+          const title = shareDisplayName + ' Analysis Report';
           if (navigator.share) {
             await navigator.share({ title, text });
           } else if (navigator.clipboard && navigator.clipboard.writeText) {
@@ -3442,39 +3453,30 @@ const App = (() => {
     wireRangeRadios('chart-range');
     wireRangeRadios('chart-range-fs');
 
-    // Chart type toggle. The compact button both switches type AND opens
-    // fullscreen when going TO candlestick — candlesticks packed into a
-    // phone-width chart are the exact complaint this feature responds to,
-    // so asking for candlesticks always comes with the room to actually see
-    // them. Switching back to line, or toggling from inside fullscreen
-    // already open, doesn't force any view change.
-    function updateChartTypeButtons() {
-      const label = state.chartType === 'line' ? '🕯️ Candlestick' : '📈 Line';
-      const a = $('#chart-type-toggle');
-      const b = $('#chart-type-toggle-fs');
-      if (a) a.textContent = label;
-      if (b) b.textContent = label;
+    // Chart type toggle — a clear 2-state radio group (not a flip-label
+    // button) so the active style is always visually unambiguous. Selecting
+    // Candlestick from the compact toolbar also opens fullscreen, since
+    // candlesticks only really work with the extra room fullscreen
+    // provides; selecting it from inside fullscreen (already open) or
+    // selecting Line from either toolbar just redraws in place.
+    function wireChartStyleRadios(name) {
+      $$('input[name="' + name + '"]').forEach((radio) => {
+        radio.addEventListener('change', (e) => {
+          const value = e.target.value;
+          state.chartType = value;
+          const otherName = name === 'chart-style' ? 'chart-style-fs' : 'chart-style';
+          const other = document.querySelector('input[name="' + otherName + '"][value="' + value + '"]');
+          if (other) other.checked = true;
+          if (value === 'candlestick' && !state.fullscreenChart) {
+            openChartFullscreen();
+          } else if (state.view === 'market') {
+            drawPriceChart();
+          }
+        });
+      });
     }
-    updateChartTypeButtons();
-    const chartTypeBtn = $('#chart-type-toggle');
-    if (chartTypeBtn)
-      chartTypeBtn.addEventListener('click', () => {
-        const goingToCandlestick = state.chartType === 'line';
-        state.chartType = goingToCandlestick ? 'candlestick' : 'line';
-        updateChartTypeButtons();
-        if (goingToCandlestick && !state.fullscreenChart) {
-          openChartFullscreen();
-        } else if (state.view === 'market') {
-          drawPriceChart();
-        }
-      });
-    const chartTypeBtnFs = $('#chart-type-toggle-fs');
-    if (chartTypeBtnFs)
-      chartTypeBtnFs.addEventListener('click', () => {
-        state.chartType = state.chartType === 'line' ? 'candlestick' : 'line';
-        updateChartTypeButtons();
-        drawPriceChart();
-      });
+    wireChartStyleRadios('chart-style');
+    wireChartStyleRadios('chart-style-fs');
 
     const peerBtn = $('#peer-compare-btn');
     if (peerBtn) peerBtn.addEventListener('click', runPeerComparison);
