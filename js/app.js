@@ -7,7 +7,7 @@ const SHEETS_API = 'https://script.google.com/macros/s/AKfycbxgR0EC7xaqe9H0Wx9gG
 const SHEETS_ANALYSE_TIMEOUT_MS = 185000;
 // Your GitHub Pages URL for this app — shown at the end of the shared text
 // report so whoever receives it can open the app themselves.
-const APP_URL = 'https://niveshaka-bandhu.github.io/market-watch/';
+const APP_URL = 'https://YOUR-USERNAME.github.io/YOUR-REPO/';
 
 const App = (() => {
   let state = {
@@ -3248,6 +3248,16 @@ const App = (() => {
     const zone = $('#' + zoneId);
     if (zone) zone.classList.add('mobile-active');
     window.scrollTo({ top: 0, behavior: 'smooth' });
+
+    // The chart is drawn as soon as a ticker loads, but the default zone
+    // shown right after loading is zone-verdict, not zone-chart — so Plotly
+    // measures a display:none (0×0) container at draw time and renders
+    // nothing. It never self-corrects once the zone later becomes visible
+    // (same root cause the fullscreen overlay already needed a resize nudge
+    // for), so switching into this zone has to explicitly force a redraw.
+    if (zoneId === 'zone-chart' && state.view === 'market') {
+      setTimeout(() => drawPriceChart(), 50);
+    }
   }
 
   function setWorkspace(view, navKey, mobileZone) {
