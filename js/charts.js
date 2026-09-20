@@ -3,11 +3,7 @@
  */
 
 const Charts = (() => {
-  const isMobileDark =
-    typeof window !== 'undefined' &&
-    window.matchMedia &&
-    window.matchMedia('(prefers-color-scheme: dark) and (max-width: 768px)').matches;
-  const isLight = !isMobileDark;
+  const isLight = true; // light theme only, everywhere — no dark mode
 
   const gridColor = isLight ? '#e2e6eb' : '#1a222d';
   const lineColor = isLight ? '#c7ccd3' : '#2a3441';
@@ -203,6 +199,36 @@ const Charts = (() => {
 
     const shapes = [];
     const annotations = [];
+
+    // Current price marker — dashed reference line + a colored label
+    // pinned to the right edge, matching the TradingView-style "last
+    // price" tag. Uses the last plotted close, same as any standard chart.
+    if (closes.length) {
+      const currentPrice = closes[closes.length - 1];
+      shapes.push({
+        type: 'line',
+        xref: 'paper',
+        x0: 0,
+        x1: 1,
+        y0: currentPrice,
+        y1: currentPrice,
+        line: { color: lineColor, width: 1, dash: 'dash' }
+      });
+      annotations.push({
+        xref: 'paper',
+        x: 1,
+        xanchor: 'left',
+        y: currentPrice,
+        yanchor: 'middle',
+        text: currentPrice.toFixed(2),
+        showarrow: false,
+        bgcolor: lineColor,
+        font: { size: 11, color: '#ffffff' },
+        borderpad: 4,
+        borderradius: 3
+      });
+    }
+
     if (fibLevels && fibLevels.length) {
       const fibColor = isLight ? 'rgba(234,88,12,0.55)' : 'rgba(249,115,22,0.55)';
       fibLevels.forEach((lvl) => {
@@ -264,6 +290,7 @@ const Charts = (() => {
         hoverformat: ',.2f',
         separatethousands: true,
         domain: [0.24, 1],
+        side: 'right',
         // A 'tozeroy' fill trace makes Plotly's autorange extend the axis
         // down to include 0 by default, squishing the actual price detail
         // into a thin strip at the top with a huge, weirdly-proportioned
