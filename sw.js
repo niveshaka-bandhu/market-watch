@@ -1,4 +1,4 @@
-const CACHE_NAME = 'quant-verdict-v5';
+const CACHE_NAME = 'quant-verdict-v6';
 const ASSETS = [
   './',
   './index.html',
@@ -43,7 +43,13 @@ self.addEventListener('activate', (e) => {
 
 self.addEventListener('fetch', (e) => {
   e.respondWith(
-    fetch(e.request)
+    // cache: 'reload' forces this fetch to bypass the browser's own HTTP
+    // cache and always hit the network, not just prefer it. Without this,
+    // a "network-first" strategy can still silently serve a stale asset —
+    // fetch() otherwise honors normal HTTP cache-control/expiry headers on
+    // its own, before this handler's fallback logic ever gets a say, which
+    // is exactly how an updated CSS file could keep failing to show up.
+    fetch(e.request, { cache: 'reload' })
       .then((res) => {
         // Keep the cache fresh with whatever we just successfully fetched,
         // so offline fallback (below) stays reasonably up to date too.
