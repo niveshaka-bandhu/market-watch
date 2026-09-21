@@ -679,6 +679,63 @@ const Indicators = (() => {
     };
   }
 
+  // Monte Carlo simulation via Geometric Brownian Motion, calibrated to the
+  // stock's own historical daily log-return mean (drift) and standard
+  // deviation (volatility). This is a probability RANGE of plausible
+  // outcomes, not a prediction — it assumes past volatility/drift roughly
+  // continues and that returns are normally distributed, which real
+  // markets only approximate (fatter tails, occasional large jumps).
+  // simMatrix is returned as [day][simulationIndex] — rows are time steps,
+  // columns are individual simulated paths — matching what
+  // Charts.monteCarloChart expects to plot a fan chart.
+  function monteCarloSim(df, days, numSims) {
+    if (!df || df.length < 30) return null;
+    const closes = df.map((r) => r.close);
+    const logReturns = [];
+    for (let i = 1; i < closes.length; i++) logReturns.push(Math.log(closes[i] / closes[i - 1]));
+    const n = logReturns.length;
+    if (n < 20) return null;
+    const mean = logReturns.reduce((a, b) => a + b, 0) / n;
+    const variance = logReturns.reduce((a, b) => a + (b - mean) * (b - mean), 0) / n;
+    const stdDev = Math.sqrt(variance);
+    const drift = mean - variance / 2; // GBM drift adjustment (Ito correction)
+    const lastPrice = closes[closes.length - 1];
+
+    const simMatrix = [new Array(numSims).fill(lastPrice)];
+    for (let d = 1; d <= days; d++) {
+      const prevRow = simMatrix[d - 1];
+      const row = new Array(numSims);
+      for (let s = 0; s < numSims; s++) {
+        // Box-Muller transform for a standard normal random variable
+        const u1 = Math.random() || 1e-9;
+        const u2 = Math.random();
+        const z = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
+        row[s] = prevRow[s] * Math.exp(drift + stdDev * z);
+      }
+      simMatrix.push(row);
+    }
+
+    const finalRow = simMatrix[simMatrix.length - 1].slice().sort((a, b) => a - b);
+    function percentile(p) {
+      const idx = Math.min(finalRow.length - 1, Math.max(0, Math.floor(p * (finalRow.length - 1))));
+      return finalRow[idx];
+    }
+    const probAbove = finalRow.filter((p) => p > lastPrice).length / finalRow.length;
+
+    return {
+      simMatrix,
+      lastPrice,
+      days,
+      p10: percentile(0.10),
+      p25: percentile(0.25),
+      p50: percentile(0.50),
+      p75: percentile(0.75),
+      p90: percentile(0.90),
+      probAbove,
+      annualVolPct: stdDev * Math.sqrt(252) * 100
+    };
+  }
+
   return {
     calculateAll,
     pivots,
@@ -700,6 +757,7 @@ const Indicators = (() => {
     week52Range,
     detectCandlestickPatterns,
     detectBreakout,
-    volatilityRange
+    volatilityRange,
+    monteCarloSim
   };
 })();
