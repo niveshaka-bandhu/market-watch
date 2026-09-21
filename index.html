@@ -4,7 +4,6 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="theme-color" content="#f4f7fe" />
-  <meta name="theme-color" content="#0b0f14" media="(prefers-color-scheme: dark) and (max-width: 768px)" />
 
   <!-- iOS doesn't read the web manifest for home-screen icon / splash like
        Android does — it needs these explicitly, both pointed at the same
@@ -162,7 +161,10 @@
               <a id="tv-link" href="#" target="_blank" rel="noopener" class="analyse-btn" style="text-decoration:none;display:inline-block;padding:6px 14px;font-size:12px">
                 Open in TradingView ↗
               </a>
-              <button type="button" id="chart-type-toggle" title="Switch to candlestick view" style="background:var(--surface-2);border:1px solid var(--border);border-radius:8px;padding:6px 10px;cursor:pointer;font-size:12px;font-weight:600">🕯️ Candlestick</button>
+              <div class="radio-group" id="chart-style-group" style="margin:0">
+                <label><input type="radio" name="chart-style" value="line" checked /><span>📈 Line</span></label>
+                <label><input type="radio" name="chart-style" value="candlestick" /><span>🕯️ Candlestick</span></label>
+              </div>
               <button type="button" id="chart-expand-btn" title="Expand chart" style="background:var(--surface-2);border:1px solid var(--border);border-radius:8px;padding:6px 10px;cursor:pointer;font-size:14px">⛶</button>
             </div>
           </div>
@@ -212,6 +214,14 @@
           <p id="chart-mode-note" style="font-size:11px;color:var(--text-muted);margin-top:8px">
             This chart drives the automated verdict below — indicators here feed the bull/bear scoring.
           </p>
+        </div>
+
+        <div class="card" style="margin-bottom:20px">
+          <h3>📋 Complete Technical Analysis</h3>
+          <p style="font-size:12px;color:var(--text-muted);margin-bottom:10px">
+            Every chart signal below, organized by category — short-term, not a price prediction.
+          </p>
+          <div id="technical-summary"></div>
         </div>
 
         <div class="card" style="margin-bottom:20px">
@@ -376,6 +386,7 @@
         <div class="tabs">
           <button class="tab-btn active" data-tab="quality">🧬 Quality Matrix</button>
           <button class="tab-btn" data-tab="monte">📅 Seasonality</button>
+          <button class="tab-btn" data-tab="montecarlo">🎲 Monte Carlo</button>
           <button class="tab-btn" data-tab="backtest">🕒 Strategy Backtester</button>
           <button class="tab-btn" data-tab="notes">📌 Notes</button>
         </div>
@@ -422,6 +433,29 @@
               </thead>
               <tbody id="seasonality-body"></tbody>
             </table>
+          </div>
+        </div>
+
+        <div id="tab-montecarlo" class="tab-content">
+          <div class="card">
+            <h3>🎲 Monte Carlo Simulation</h3>
+            <p style="font-size:12px;color:var(--text-muted);margin-bottom:12px;line-height:1.6">
+              Simulates hundreds of random price paths using this stock's own historical volatility and drift —
+              a probability <b>range</b> of plausible outcomes, not a prediction. Assumes past volatility roughly
+              continues and that daily returns are normally distributed, which real markets only approximate
+              (actual moves can be larger and more frequent than a normal distribution suggests).
+            </p>
+            <div class="radio-group" id="mc-horizon-group" style="margin-bottom:12px">
+              <label><input type="radio" name="mc-horizon" value="21" /><span>1M</span></label>
+              <label><input type="radio" name="mc-horizon" value="63" checked /><span>3M</span></label>
+              <label><input type="radio" name="mc-horizon" value="126" /><span>6M</span></label>
+              <label><input type="radio" name="mc-horizon" value="252" /><span>1Y</span></label>
+            </div>
+            <button type="button" id="mc-run-btn" class="analyse-btn" style="padding:9px 20px;font-size:13px">
+              Run Simulation
+            </button>
+            <div id="mc-chart" style="margin-top:14px;height:360px"></div>
+            <div id="mc-result" class="result-box" style="margin-top:10px">Run a simulation to see the outcome range.</div>
           </div>
         </div>
 
@@ -854,7 +888,10 @@
       <label class="checkbox-wrap" style="margin-top:0"><input type="checkbox" id="show-bb-fs" checked /> Bollinger</label>
       <label class="checkbox-wrap" style="margin-top:0"><input type="checkbox" id="show-fib-fs" /> Fibonacci</label>
       <label class="checkbox-wrap" style="margin-top:0"><input type="checkbox" id="show-ichimoku-fs" /> Ichimoku</label>
-      <button type="button" id="chart-type-toggle-fs" style="background:var(--surface-2);border:1px solid var(--border);border-radius:8px;padding:5px 10px;cursor:pointer;font-size:12px;font-weight:600">🕯️ Candlestick</button>
+      <div class="radio-group" id="chart-style-group-fs" style="margin:0">
+        <label><input type="radio" name="chart-style-fs" value="line" /><span>📈 Line</span></label>
+        <label><input type="radio" name="chart-style-fs" value="candlestick" checked /><span>🕯️ Candlestick</span></label>
+      </div>
       <button type="button" id="chart-fullscreen-close">✕ Close</button>
     </div>
     <div id="price-chart-fullscreen"></div>
@@ -885,6 +922,7 @@
     <div class="more-sheet-panel">
       <div class="more-sheet-handle"></div>
       <button type="button" class="more-item" data-tab="monte">📅 Seasonality</button>
+      <button type="button" class="more-item" data-tab="montecarlo">🎲 Monte Carlo</button>
       <button type="button" class="more-item" data-tab="backtest">🕒 Strategy Backtester</button>
       <button type="button" class="more-item" data-tab="notes">📌 Notes</button>
       <button type="button" class="more-item" data-view="learn">📚 Learn: What These Numbers Mean</button>
