@@ -511,5 +511,109 @@ const VerdictEngine = (() => {
     return { score, max, tag, cssClass, checks };
   }
 
-  return { analyse, analyseLongTerm, riskLevel, valuationVerdict, nbScore };
+  // ---------------- Complete Technical Analysis Summary ----------------
+  // Consolidates every chart-based signal already computed elsewhere into
+  // one categorized short-term read — the same underlying signals the
+  // Master Verdict blends into a single number, but organized the way a
+  // technical analyst actually presents a "complete chart analysis": by
+  // category, not as one score.
+  function technicalSummary(df, info) {
+    if (!df || df.length < 20) return null;
+    const last = df[df.length - 1];
+    const categories = [];
+
+    const trend = [];
+    if (last.sma50 != null && last.sma200 != null) {
+      if (last.close > last.sma50 && last.sma50 > last.sma200) {
+        trend.push({ bullish: true, text: 'Price above both SMA50 and SMA200, with SMA50 above SMA200 — established uptrend.' });
+      } else if (last.close < last.sma50 && last.sma50 < last.sma200) {
+        trend.push({ bullish: false, text: 'Price below both SMA50 and SMA200, with SMA50 below SMA200 — established downtrend.' });
+      } else {
+        trend.push({ bullish: null, text: 'Price is mixed relative to its moving averages — no clean trend.' });
+      }
+    }
+    if (info.ichimoku && info.ichimoku.senkouA != null && info.ichimoku.senkouB != null) {
+      const cloudTop = Math.max(info.ichimoku.senkouA, info.ichimoku.senkouB);
+      const cloudBottom = Math.min(info.ichimoku.senkouA, info.ichimoku.senkouB);
+      if (info.ichimoku.price > cloudTop) trend.push({ bullish: true, text: 'Price is above the Ichimoku cloud — bullish trend structure.' });
+      else if (info.ichimoku.price < cloudBottom) trend.push({ bullish: false, text: 'Price is below the Ichimoku cloud — bearish trend structure.' });
+      else trend.push({ bullish: null, text: 'Price is inside the Ichimoku cloud — no clear trend, a caution zone.' });
+    }
+    categories.push({ name: 'Trend', signals: trend });
+
+    const momentum = [];
+    if (last.rsi != null) {
+      if (last.rsi > 70) momentum.push({ bullish: false, text: 'RSI at ' + last.rsi.toFixed(1) + ' — overbought, momentum stretched.' });
+      else if (last.rsi < 30) momentum.push({ bullish: true, text: 'RSI at ' + last.rsi.toFixed(1) + ' — oversold, potential bounce zone.' });
+      else if (last.rsi >= 50) momentum.push({ bullish: true, text: 'RSI at ' + last.rsi.toFixed(1) + ' — leaning positive.' });
+      else momentum.push({ bullish: false, text: 'RSI at ' + last.rsi.toFixed(1) + ' — leaning negative.' });
+    }
+    if (last.macdHist != null) {
+      momentum.push({
+        bullish: last.macdHist > 0,
+        text: 'MACD histogram is ' + (last.macdHist > 0 ? 'positive' : 'negative') + ' — ' + (last.macdHist > 0 ? 'bullish' : 'bearish') + ' momentum.'
+      });
+    }
+    categories.push({ name: 'Momentum', signals: momentum });
+
+    const volatility = [];
+    if (last.bbUpper != null && last.bbLower != null && last.bbUpper > last.bbLower) {
+      const bbPos = (last.close - last.bbLower) / (last.bbUpper - last.bbLower);
+      if (bbPos > 0.95) volatility.push({ bullish: false, text: 'Price is at the upper Bollinger Band — statistically stretched short-term.' });
+      else if (bbPos < 0.05) volatility.push({ bullish: true, text: 'Price is at the lower Bollinger Band — statistically stretched to the downside.' });
+      else volatility.push({ bullish: null, text: 'Price sits within its normal Bollinger range.' });
+    }
+    if (last.atr != null && last.close > 0) {
+      const atrPct = (last.atr / last.close) * 100;
+      volatility.push({ bullish: null, text: 'ATR is ' + atrPct.toFixed(1) + '% of price — ' + (atrPct > 3 ? 'elevated' : 'normal') + ' daily volatility.' });
+    }
+    categories.push({ name: 'Volatility', signals: volatility });
+
+    const sr = [];
+    if (last.high != null && last.low != null && last.close != null) {
+      const pivot = (last.high + last.low + last.close) / 3;
+      sr.push({
+        bullish: last.close > pivot,
+        text:
+          last.close > pivot
+            ? 'Trading above the daily pivot (₹' + pivot.toFixed(1) + ') — near-term bias leans positive.'
+            : 'Trading below the daily pivot (₹' + pivot.toFixed(1) + ') — near-term bias leans negative.'
+      });
+    }
+    categories.push({ name: 'Support & Resistance', signals: sr });
+
+    const patterns = [];
+    if (info.candlePatterns && info.candlePatterns.length) {
+      info.candlePatterns.forEach((p) => {
+        patterns.push({ bullish: p.signal === 'bullish' ? true : p.signal === 'bearish' ? false : null, text: p.name + ' — ' + p.note });
+      });
+    }
+    if (info.breakout) {
+      patterns.push({
+        bullish: info.breakout.type === 'breakout',
+        text: (info.breakout.type === 'breakout' ? 'Breakout: ' : 'Breakdown: ') + info.breakout.note
+      });
+    }
+    if (info.divergences && info.divergences.length) {
+      info.divergences.forEach((d) => {
+        patterns.push({ bullish: d.type === 'bullish', text: (d.type === 'bullish' ? 'Bullish' : 'Bearish') + ' divergence on ' + d.indicator + ' — ' + d.note });
+      });
+    }
+    categories.push({ name: 'Patterns', signals: patterns });
+
+    let bull = 0, bear = 0;
+    categories.forEach((c) => c.signals.forEach((s) => { if (s.bullish === true) bull++; else if (s.bullish === false) bear++; }));
+    const total = bull + bear;
+    if (!total) return null;
+    const ratio = bull / total;
+    let overall, cssClass;
+    if (ratio >= 0.65) { overall = 'Short-Term Bullish'; cssClass = 'strong-buy'; }
+    else if (ratio >= 0.5) { overall = 'Mildly Bullish'; cssClass = 'mild-buy'; }
+    else if (ratio >= 0.35) { overall = 'Mildly Bearish'; cssClass = 'neutral'; }
+    else { overall = 'Short-Term Bearish'; cssClass = 'sell'; }
+
+    return { categories, overall, cssClass, bull, bear };
+  }
+
+  return { analyse, analyseLongTerm, riskLevel, valuationVerdict, nbScore, technicalSummary };
 })();
