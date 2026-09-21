@@ -15,7 +15,7 @@ const Charts = (() => {
     paper_bgcolor: 'rgba(0,0,0,0)',
     plot_bgcolor: 'rgba(0,0,0,0)',
     font: { color: fontColor, size: 11, family: 'Inter, system-ui, sans-serif' },
-    margin: { l: 50, r: 68, t: 20, b: 40 },
+    margin: { l: 50, r: 78, t: 20, b: 40 },
     xaxis: {
       gridcolor: gridColor,
       linecolor: lineColor,
@@ -223,8 +223,8 @@ const Charts = (() => {
         text: currentPrice.toFixed(2),
         showarrow: false,
         bgcolor: lineColor,
-        font: { size: 11, color: '#ffffff' },
-        borderpad: 4,
+        font: { size: 10, color: '#ffffff' },
+        borderpad: 3,
         borderradius: 3
       });
     }
@@ -285,7 +285,6 @@ const Charts = (() => {
       },
       yaxis: {
         ...layoutBase.yaxis,
-        title: 'Price (₹)',
         tickformat: ',.0f',
         hoverformat: ',.2f',
         separatethousands: true,
