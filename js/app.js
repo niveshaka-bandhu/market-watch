@@ -140,7 +140,7 @@ const App = (() => {
     if (d.about) {
       host.innerHTML +=
         '<div style="margin-top:12px">' +
-        '<p style="font-size:13px;color:var(--text-muted);line-height:1.5;margin:8px 0 0">' + d.about + '</p>' +
+        '<p style="font-size:13px;color:var(--text-muted);line-height:1.5;margin:8px 0 0;white-space:pre-line">' + d.about + '</p>' +
         '</div>';
     }
   }
@@ -2400,6 +2400,78 @@ const App = (() => {
     host.dataset.rendered = '1';
   }
 
+  // Runs the Monte Carlo simulation for the selected horizon and renders
+  // the fan chart + a plain-language results summary. Deliberately framed
+  // as a probability range (percentiles), never as a single predicted
+  // price — see the tab's own explanation text for why.
+  function runMonteCarlo() {
+    if (!state.df) return;
+    const btn = $('#mc-run-btn');
+    const resultEl = $('#mc-result');
+    const horizonInput = document.querySelector('input[name="mc-horizon"]:checked');
+    const days = horizonInput ? parseInt(horizonInput.value, 10) : 63;
+    const numSims = 200;
+
+    if (btn) { btn.disabled = true; btn.textContent = 'Simulating…'; }
+    // Let the button's disabled state paint before the CPU-bound simulation
+    // runs on the main thread — a few hundred paths over up to a year of
+    // steps is fast (well under a second) but not instant.
+    setTimeout(() => {
+      const result = Indicators.monteCarloSim(state.df, days, numSims);
+      if (!result) {
+        if (resultEl) resultEl.textContent = 'Not enough price history to run a simulation for this stock.';
+        if (btn) { btn.disabled = false; btn.textContent = 'Run Simulation'; }
+        return;
+      }
+      Charts.monteCarloChart(result.simMatrix);
+      const horizonLabel = days === 21 ? '1 month' : days === 63 ? '3 months' : days === 126 ? '6 months' : '1 year';
+      if (resultEl) {
+        resultEl.innerHTML =
+          'Over the next <b>' + horizonLabel + '</b> (' + numSims + ' simulated paths, ' +
+          result.annualVolPct.toFixed(1) + '% annualized volatility):<br>' +
+          '10th percentile: <b>' + formatINR(result.p10) + '</b> &nbsp;·&nbsp; ' +
+          'Median: <b>' + formatINR(result.p50) + '</b> &nbsp;·&nbsp; ' +
+          '90th percentile: <b>' + formatINR(result.p90) + '</b><br>' +
+          "Probability of being above today's price (" + formatINR(result.lastPrice) + '): <b>' +
+          (result.probAbove * 100).toFixed(0) + '%</b>';
+      }
+      if (btn) { btn.disabled = false; btn.textContent = 'Run Simulation'; }
+    }, 30);
+  }
+
+  function renderTechnicalSummary() {
+    const host = $('#technical-summary');
+    if (!host) return;
+    const ts = state.technicalSummary;
+    if (!ts) {
+      host.innerHTML = '<p style="font-size:12.5px;color:var(--text-muted)">Not enough price history for a full technical read.</p>';
+      return;
+    }
+    const overallHtml =
+      '<div class="verdict-badge ' + ts.cssClass + '" style="margin-bottom:14px">' +
+      '<div class="vb-label">Overall Short-Term Read</div>' +
+      '<div class="vb-tag">' + ts.overall + '</div>' +
+      '<div class="vb-reason">' + ts.bull + ' bullish vs ' + ts.bear + ' bearish signals, across ' + ts.categories.length + ' categories.</div>' +
+      '</div>';
+    const categoriesHtml = ts.categories
+      .filter((c) => c.signals.length)
+      .map((c) => {
+        const items = c.signals
+          .map((s) => {
+            const color = s.bullish === true ? 'var(--green)' : s.bullish === false ? 'var(--red)' : 'var(--text-muted)';
+            const arrow = s.bullish === true ? '▲' : s.bullish === false ? '▼' : '●';
+            return '<li style="font-size:12.5px;margin-bottom:4px;color:' + color + '">' + arrow + ' ' + s.text + '</li>';
+          })
+          .join('');
+        return (
+          '<div style="margin-bottom:12px"><div style="font-weight:700;font-size:13px;margin-bottom:4px;color:var(--text)">' +
+          c.name + '</div><ul style="list-style:none;padding:0;margin:0">' + items + '</ul></div>'
+        );
+      })
+      .join('');
+    host.innerHTML = overallHtml + categoriesHtml;
+  }
+
   function renderVerdictBadges() {
     const host = $('#extra-verdicts');
     if (!host) return;
@@ -2503,6 +2575,7 @@ const App = (() => {
 
     if (state.df) drawPriceChart();
     renderCandlestickPatterns(state.df);
+    renderTechnicalSummary();
     renderRiskMetrics(state.df, state.sheet);
     renderMultiTimeframeConfluence();
     renderVerdictHistory(state.rawInput);
@@ -2933,6 +3006,7 @@ const App = (() => {
     state.riskVerdict = VerdictEngine.riskLevel(verdictInfo);
     state.valuationVerdict = state.sheet ? VerdictEngine.valuationVerdict(verdictInfo) : null;
     state.nbScore = VerdictEngine.nbScore(verdictInfo);
+    state.technicalSummary = state.df ? VerdictEngine.technicalSummary(state.df, verdictInfo) : null;
     state.bottomLine = synthesizeBottomLine();
   }
 
@@ -3487,6 +3561,9 @@ const App = (() => {
     }
     wireChartStyleRadios('chart-style');
     wireChartStyleRadios('chart-style-fs');
+
+    const mcRunBtn = $('#mc-run-btn');
+    if (mcRunBtn) mcRunBtn.addEventListener('click', runMonteCarlo);
 
     const peerBtn = $('#peer-compare-btn');
     if (peerBtn) peerBtn.addEventListener('click', runPeerComparison);
