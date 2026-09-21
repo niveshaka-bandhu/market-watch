@@ -7,7 +7,7 @@ const SHEETS_API = 'https://script.google.com/macros/s/AKfycbxgR0EC7xaqe9H0Wx9gG
 const SHEETS_ANALYSE_TIMEOUT_MS = 185000;
 // Your GitHub Pages URL for this app — shown at the end of the shared text
 // report so whoever receives it can open the app themselves.
-const APP_URL = 'https://YOUR-USERNAME.github.io/YOUR-REPO/';
+const APP_URL = 'https://niveshaka-bandhu.github.io/market-watch/';
 
 const App = (() => {
   let state = {
@@ -140,8 +140,19 @@ const App = (() => {
     if (d.about) {
       host.innerHTML +=
         '<div style="margin-top:12px">' +
-        '<p style="font-size:13px;color:var(--text-muted);line-height:1.5;margin:8px 0 0;white-space:pre-line">' + d.about + '</p>' +
+        '<p id="company-about-text" class="about-truncated" style="font-size:13px;color:var(--text-muted);line-height:1.5;margin:8px 0 4px">' +
+        d.about + '</p>' +
+        '<button type="button" id="company-about-toggle" style="background:none;border:none;color:var(--accent);font-weight:600;font-size:12px;cursor:pointer;padding:0">Show more</button>' +
         '</div>';
+      const toggleBtn = $('#company-about-toggle');
+      const textEl = $('#company-about-text');
+      if (toggleBtn && textEl) {
+        toggleBtn.addEventListener('click', () => {
+          const expanded = textEl.classList.toggle('about-expanded');
+          textEl.classList.toggle('about-truncated', !expanded);
+          toggleBtn.textContent = expanded ? 'Show less' : 'Show more';
+        });
+      }
     }
   }
 
