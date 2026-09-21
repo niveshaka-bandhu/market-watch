@@ -919,7 +919,7 @@ table.data-table thead th {
 .more-sheet { display: none; }
 
 @media (max-width: 768px) {
-  body { padding-bottom: 76px; } /* clear the fixed bottom nav */
+  body { padding-bottom: 64px; } /* clear the fixed bottom nav */
 
   /* Desktop-only controls: workspace toggle and tab bar are replaced by
      the bottom nav on mobile. */
@@ -944,7 +944,7 @@ table.data-table thead th {
     z-index: 300;
     background: var(--surface);
     border-top: 1px solid var(--border);
-    padding: 8px 12px calc(8px + env(safe-area-inset-bottom));
+    padding: 6px 12px calc(6px + env(safe-area-inset-bottom));
     justify-content: space-around;
     align-items: flex-end;
   }
@@ -967,19 +967,19 @@ table.data-table thead th {
   .mnav-icon { font-size: 20px; line-height: 1; }
   .mnav-home {
     position: relative;
-    top: -18px;
+    top: -8px;
   }
   .mnav-home-circle {
-    width: 56px;
-    height: 56px;
+    width: 44px;
+    height: 44px;
     border-radius: 999px;
     background: #ffffff;
     display: flex;
     align-items: center;
     justify-content: center;
-    box-shadow: 0 6px 16px rgba(0,0,0,0.3);
+    box-shadow: 0 4px 10px rgba(0,0,0,0.25);
     overflow: hidden;
-    border: 3px solid var(--accent);
+    border: 2px solid var(--accent);
   }
   .mnav-home-circle img { width: 70%; height: 70%; object-fit: contain; }
 
