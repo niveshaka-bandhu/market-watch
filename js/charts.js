@@ -45,7 +45,7 @@ const Charts = (() => {
     return dates;
   }
 
-  function priceChart(df, showBollinger = true, fibLevels = null, daysToShow = 260, targetId = 'price-chart', ichimokuData = null, chartType = 'candlestick') {
+  function priceChart(df, showBollinger = true, fibLevels = null, daysToShow = 260, targetId = 'price-chart', ichimokuData = null, chartType = 'candlestick', fibExtensions = null, regressionChannel = null) {
     if (typeof Plotly === 'undefined') return;
     if (!df || df.length < 5) return;
     const data = daysToShow ? df.slice(-daysToShow) : df;
@@ -99,6 +99,16 @@ const Charts = (() => {
         line: { color: '#f97316', width: 1.4 }
       }
     ];
+
+    if (regressionChannel && regressionChannel.dates && regressionChannel.dates.length) {
+      const rc = regressionChannel;
+      const channelColor = isLight ? 'rgba(124,58,237,0.7)' : 'rgba(167,139,250,0.8)';
+      traces.push(
+        { type: 'scatter', mode: 'lines', x: rc.dates, y: rc.upper1, name: 'Regression +1σ', line: { color: channelColor, width: 1, dash: 'dot' }, showlegend: false },
+        { type: 'scatter', mode: 'lines', x: rc.dates, y: rc.mid, name: 'Regression Channel', line: { color: channelColor, width: 1.5 } },
+        { type: 'scatter', mode: 'lines', x: rc.dates, y: rc.lower1, name: 'Regression -1σ', line: { color: channelColor, width: 1, dash: 'dot' }, showlegend: false }
+      );
+    }
 
     if (showBollinger) {
       traces.push(
@@ -250,6 +260,33 @@ const Charts = (() => {
           text: lvl.label,
           showarrow: false,
           font: { size: 9, color: fibColor }
+        });
+      });
+    }
+
+    if (fibExtensions && fibExtensions.levels && fibExtensions.levels.length) {
+      // Distinct color from retracements — these are continuation TARGETS
+      // beyond the swing range, not pullback levels within it.
+      const extColor = isLight ? 'rgba(190,24,93,0.6)' : 'rgba(244,114,182,0.75)';
+      fibExtensions.levels.forEach((lvl) => {
+        shapes.push({
+          type: 'line',
+          xref: 'paper',
+          x0: 0,
+          x1: 1,
+          y0: lvl.price,
+          y1: lvl.price,
+          line: { color: extColor, width: 1, dash: 'dashdot' }
+        });
+        annotations.push({
+          xref: 'paper',
+          x: 1,
+          xanchor: 'left',
+          y: lvl.price,
+          yanchor: 'middle',
+          text: lvl.label,
+          showarrow: false,
+          font: { size: 9, color: extColor }
         });
       });
     }
