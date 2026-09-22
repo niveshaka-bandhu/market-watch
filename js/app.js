@@ -24,6 +24,7 @@ const App = (() => {
     chartType: 'line',
     priceMode: 'price', // 'price' | 'pe' | 'pb' — same chart container, different data
     fibEnabled: false,
+    regressionChannelEnabled: false,
     ichimokuEnabled: false,
     chartTimeframe: 'D',
     chartRange: 260,
@@ -1851,11 +1852,13 @@ const App = (() => {
     if (!state.df) return;
     const data = Indicators.aggregateOHLC(state.df, state.chartTimeframe);
     const fib = state.fibEnabled ? Indicators.fibonacciLevels(data, 130) : null;
+    const fibExt = state.fibEnabled ? Indicators.fibonacciExtensions(data, 130) : null;
+    const regressionChannel = state.regressionChannelEnabled ? Indicators.linearRegressionChannel(data, 100) : null;
     const ichimokuData = state.ichimokuEnabled ? Indicators.ichimoku(data) : null;
     let daysToShow = state.chartRange;
     if (daysToShow && state.chartTimeframe === 'W') daysToShow = Math.ceil(daysToShow / 5);
     else if (daysToShow && state.chartTimeframe === 'M') daysToShow = Math.ceil(daysToShow / 21);
-    Charts.priceChart(data, state.showBollinger, fib, daysToShow, target, ichimokuData, state.chartType);
+    Charts.priceChart(data, state.showBollinger, fib, daysToShow, target, ichimokuData, state.chartType, fibExt, regressionChannel);
   }
 
   async function loadIntradayChart(interval) {
@@ -3511,6 +3514,7 @@ const App = (() => {
     syncCheckboxPair('#show-bb', '#show-bb-fs', 'showBollinger');
     syncCheckboxPair('#show-fib', '#show-fib-fs', 'fibEnabled');
     syncCheckboxPair('#show-ichimoku', '#show-ichimoku-fs', 'ichimokuEnabled');
+    syncCheckboxPair('#show-regression', '#show-regression-fs', 'regressionChannelEnabled');
 
     function wireIntervalSelect(sel) {
       if (!sel) return;
