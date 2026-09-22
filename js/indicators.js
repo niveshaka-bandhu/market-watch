@@ -555,23 +555,29 @@ const Indicators = (() => {
     const volConfirmed = last.volume != null && avgVolume > 0 && last.volume > avgVolume * 1.5;
 
     if (last.close > rangeHigh) {
+      const height = rangeHigh - rangeLow;
       return {
         type: 'breakout',
         level: rangeHigh,
+        target: rangeHigh + height, // measured move: breakout level + height of the preceding range
         volConfirmed,
         note:
           `Closed above the ${lookback}-day consolidation high (₹${rangeHigh.toFixed(1)})` +
-          (volConfirmed ? ', confirmed by volume well above average.' : ', but on unremarkable volume — watch for confirmation.')
+          (volConfirmed ? ', confirmed by volume well above average.' : ', but on unremarkable volume — watch for confirmation.') +
+          ` Measured-move target: ₹${(rangeHigh + height).toFixed(1)}.`
       };
     }
     if (last.close < rangeLow) {
+      const height = rangeHigh - rangeLow;
       return {
         type: 'breakdown',
         level: rangeLow,
+        target: rangeLow - height,
         volConfirmed,
         note:
           `Closed below the ${lookback}-day consolidation low (₹${rangeLow.toFixed(1)})` +
-          (volConfirmed ? ', confirmed by volume well above average.' : ', but on unremarkable volume — watch for confirmation.')
+          (volConfirmed ? ', confirmed by volume well above average.' : ', but on unremarkable volume — watch for confirmation.') +
+          ` Measured-move target: ₹${(rangeLow - height).toFixed(1)}.`
       };
     }
     return null;
@@ -646,6 +652,70 @@ const Indicators = (() => {
       price: hi - range * r,
       label: (r * 100).toFixed(1) + '%'
     }));
+  }
+
+  // Fibonacci Extensions — same swing high/low as the retracement levels
+  // above, but projecting BEYOND the range in the direction of the more
+  // recent extreme, for continuation targets rather than pullback levels.
+  function fibonacciExtensions(df, lookback) {
+    if (!df || !df.length) return null;
+    const window = lookback ? df.slice(-lookback) : df;
+    let hi = -Infinity, lo = Infinity, hiIdx = -1, loIdx = -1;
+    window.forEach((row, i) => {
+      if (row.high > hi) { hi = row.high; hiIdx = i; }
+      if (row.low < lo) { lo = row.low; loIdx = i; }
+    });
+    if (!isFinite(hi) || !isFinite(lo) || hi === lo) return null;
+    const range = hi - lo;
+    const ratios = [1.272, 1.618, 2.0, 2.618];
+    const uptrend = hiIdx > loIdx; // the high came after the low — still trending up, project further up
+    return {
+      direction: uptrend ? 'up' : 'down',
+      levels: ratios.map((r) => ({
+        ratio: r,
+        price: uptrend ? lo + range * r : hi - range * r,
+        label: (r * 100).toFixed(1) + '% ext'
+      }))
+    };
+  }
+
+  // Linear Regression Channel — least-squares trend line over the lookback
+  // window, with +/-1 and +/-2 standard deviation bands from the residuals.
+  // A trend-following channel, same idea as a statistical regression
+  // channel tool, computed here with plain arithmetic (no library needed).
+  function linearRegressionChannel(df, lookback) {
+    lookback = lookback || 100;
+    if (!df || df.length < 20) return null;
+    const window = df.slice(-Math.min(lookback, df.length));
+    const n = window.length;
+    const ys = window.map((r) => r.close);
+    const xMean = (n - 1) / 2;
+    const yMean = ys.reduce((a, b) => a + b, 0) / n;
+    let num = 0, den = 0;
+    for (let i = 0; i < n; i++) {
+      num += (i - xMean) * (ys[i] - yMean);
+      den += (i - xMean) * (i - xMean);
+    }
+    const slope = den !== 0 ? num / den : 0;
+    const intercept = yMean - slope * xMean;
+
+    const fitted = new Array(n);
+    for (let i = 0; i < n; i++) fitted[i] = intercept + slope * i;
+    const residualVar = ys.reduce((a, y, i) => a + (y - fitted[i]) * (y - fitted[i]), 0) / n;
+    const stdDev = Math.sqrt(residualVar);
+
+    return {
+      dates: window.map((r) => r.date),
+      mid: fitted,
+      upper1: fitted.map((v) => v + stdDev),
+      lower1: fitted.map((v) => v - stdDev),
+      upper2: fitted.map((v) => v + 2 * stdDev),
+      lower2: fitted.map((v) => v - 2 * stdDev),
+      slope,
+      stdDev,
+      lastFitted: fitted[n - 1],
+      lastClose: ys[n - 1]
+    };
   }
 
   function week52Range(df) {
@@ -754,10 +824,12 @@ const Indicators = (() => {
     aggregateOHLC,
     riskMetrics,
     fibonacciLevels,
+    fibonacciExtensions,
     week52Range,
     detectCandlestickPatterns,
     detectBreakout,
     volatilityRange,
-    monteCarloSim
+    monteCarloSim,
+    linearRegressionChannel
   };
 })();
