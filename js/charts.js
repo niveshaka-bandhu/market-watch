@@ -482,9 +482,51 @@ const Charts = (() => {
     Plotly.newPlot(targetId.replace(/^#/, ''), traces, layout, { responsive: true, displayModeBar: false });
   }
 
+  // Rolling volatility (left axis, %) and Sharpe (right axis) over time —
+  // shows whether risk is currently elevated or subdued relative to the
+  // stock's own history, rather than one static point-in-time number.
+  function rollingRiskChart(dates, volatility, sharpe, targetId = 'rolling-risk-chart') {
+    if (typeof Plotly === 'undefined') return;
+    if (!dates || !dates.length) return;
+    const volColor = isLight ? '#3a2d7f' : '#8b7fd6';
+    const sharpeColor = isLight ? '#e66f25' : '#f97316';
+
+    const traces = [
+      {
+        type: 'scatter',
+        mode: 'lines',
+        x: dates,
+        y: volatility,
+        name: 'Annualized Volatility (%)',
+        line: { color: volColor, width: 1.6 },
+        yaxis: 'y'
+      },
+      {
+        type: 'scatter',
+        mode: 'lines',
+        x: dates,
+        y: sharpe,
+        name: 'Sharpe Ratio',
+        line: { color: sharpeColor, width: 1.4, dash: 'dot' },
+        yaxis: 'y2'
+      }
+    ];
+
+    const layout = {
+      ...layoutBase,
+      margin: { l: 46, r: 46, t: 10, b: 34 },
+      xaxis: { ...layoutBase.xaxis, type: 'date', rangebreaks: [{ pattern: 'day of week', bounds: [6, 1] }] },
+      yaxis: { ...layoutBase.yaxis, title: 'Vol %', side: 'left' },
+      yaxis2: { gridcolor: 'transparent', linecolor: lineColor, title: 'Sharpe', overlaying: 'y', side: 'right' }
+    };
+
+    Plotly.newPlot(targetId, traces, layout, { responsive: true, displayModeBar: false });
+  }
+
   return {
     priceChart,
     ratioChart,
+    rollingRiskChart,
     monteCarloChart,
     backtestChart
   };
