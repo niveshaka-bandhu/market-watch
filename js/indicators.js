@@ -758,6 +758,38 @@ const Indicators = (() => {
   // simMatrix is returned as [day][simulationIndex] — rows are time steps,
   // columns are individual simulated paths — matching what
   // Charts.monteCarloChart expects to plot a fan chart.
+  // Shared by both simulation methods below — turns a final row of
+  // simulated prices into percentiles plus Value at Risk / Expected
+  // Shortfall (Conditional VaR). VaR95 is the loss level such that only 5%
+  // of simulated outcomes were worse; CVaR95 (Expected Shortfall) is the
+  // average loss across just that worst 5% — a fuller picture than VaR
+  // alone, since VaR says nothing about how bad the tail itself gets.
+  function simRiskStats(finalRow, lastPrice) {
+    const sorted = finalRow.slice().sort((a, b) => a - b);
+    function percentile(p) {
+      const idx = Math.min(sorted.length - 1, Math.max(0, Math.floor(p * (sorted.length - 1))));
+      return sorted[idx];
+    }
+    const probAbove = sorted.filter((p) => p > lastPrice).length / sorted.length;
+    const returnsPct = sorted.map((p) => (p / lastPrice - 1) * 100);
+    const var95Idx = Math.max(0, Math.floor(0.05 * returnsPct.length) - 1);
+    const var99Idx = Math.max(0, Math.floor(0.01 * returnsPct.length) - 1);
+    const var95 = returnsPct[var95Idx];
+    const var99 = returnsPct[var99Idx];
+    const cvar95 = returnsPct.slice(0, var95Idx + 1).reduce((a, b) => a + b, 0) / (var95Idx + 1);
+    return {
+      p10: percentile(0.10),
+      p25: percentile(0.25),
+      p50: percentile(0.50),
+      p75: percentile(0.75),
+      p90: percentile(0.90),
+      probAbove,
+      var95,
+      var99,
+      cvar95
+    };
+  }
+
   function monteCarloSim(df, days, numSims) {
     if (!df || df.length < 30) return null;
     const closes = df.map((r) => r.close);
@@ -785,25 +817,71 @@ const Indicators = (() => {
       simMatrix.push(row);
     }
 
-    const finalRow = simMatrix[simMatrix.length - 1].slice().sort((a, b) => a - b);
-    function percentile(p) {
-      const idx = Math.min(finalRow.length - 1, Math.max(0, Math.floor(p * (finalRow.length - 1))));
-      return finalRow[idx];
-    }
-    const probAbove = finalRow.filter((p) => p > lastPrice).length / finalRow.length;
+    const stats = simRiskStats(simMatrix[simMatrix.length - 1], lastPrice);
+    return Object.assign({ simMatrix, lastPrice, days, annualVolPct: stdDev * Math.sqrt(252) * 100 }, stats);
+  }
 
-    return {
-      simMatrix,
-      lastPrice,
-      days,
-      p10: percentile(0.10),
-      p25: percentile(0.25),
-      p50: percentile(0.50),
-      p75: percentile(0.75),
-      p90: percentile(0.90),
-      probAbove,
-      annualVolPct: stdDev * Math.sqrt(252) * 100
-    };
+  // Bootstrap Historical Simulation — an alternative to the Gaussian
+  // assumption in monteCarloSim above. Instead of drawing random shocks
+  // from a normal distribution, this resamples the stock's OWN actual
+  // historical daily returns (with replacement) to build each future path.
+  // That captures real fat-tail/skew behavior — occasional larger moves,
+  // clustering, asymmetry — that a normal-distribution model smooths over.
+  // Same output shape as monteCarloSim, so it plots with the same chart.
+  function bootstrapSim(df, days, numSims) {
+    if (!df || df.length < 30) return null;
+    const closes = df.map((r) => r.close);
+    const logReturns = [];
+    for (let i = 1; i < closes.length; i++) logReturns.push(Math.log(closes[i] / closes[i - 1]));
+    const n = logReturns.length;
+    if (n < 20) return null;
+    const lastPrice = closes[closes.length - 1];
+
+    const simMatrix = [new Array(numSims).fill(lastPrice)];
+    for (let d = 1; d <= days; d++) {
+      const prevRow = simMatrix[d - 1];
+      const row = new Array(numSims);
+      for (let s = 0; s < numSims; s++) {
+        const idx = Math.floor(Math.random() * n);
+        row[s] = prevRow[s] * Math.exp(logReturns[idx]);
+      }
+      simMatrix.push(row);
+    }
+
+    const stats = simRiskStats(simMatrix[simMatrix.length - 1], lastPrice);
+    const mean = logReturns.reduce((a, b) => a + b, 0) / n;
+    const variance = logReturns.reduce((a, b) => a + (b - mean) * (b - mean), 0) / n;
+    return Object.assign({ simMatrix, lastPrice, days, annualVolPct: Math.sqrt(variance) * Math.sqrt(252) * 100 }, stats);
+  }
+
+  // Rolling volatility and Sharpe over a moving window — shows how risk has
+  // evolved over time rather than one static point-in-time number, so you
+  // can see whether the stock is currently calmer or choppier than its own
+  // history.
+  function rollingRiskMetrics(df, window) {
+    window = window || 30;
+    if (!df || df.length < window + 10) return null;
+    const closes = df.map((r) => r.close);
+    const dates = df.map((r) => r.date);
+    const logReturns = [];
+    for (let i = 1; i < closes.length; i++) logReturns.push(Math.log(closes[i] / closes[i - 1]));
+
+    const rDates = [];
+    const rVol = [];
+    const rSharpe = [];
+    for (let i = window; i <= logReturns.length; i++) {
+      const slice = logReturns.slice(i - window, i);
+      const mean = slice.reduce((a, b) => a + b, 0) / window;
+      const variance = slice.reduce((a, b) => a + (b - mean) * (b - mean), 0) / window;
+      const dailyVol = Math.sqrt(variance);
+      const annualVolPct = dailyVol * Math.sqrt(252) * 100;
+      const annualReturn = mean * 252;
+      const sharpe = annualVolPct > 0 ? (annualReturn - RISK_FREE_RATE) / (annualVolPct / 100) : null;
+      rDates.push(dates[i]);
+      rVol.push(annualVolPct);
+      rSharpe.push(sharpe);
+    }
+    return { dates: rDates, volatility: rVol, sharpe: rSharpe, window };
   }
 
   return {
@@ -830,6 +908,8 @@ const Indicators = (() => {
     detectBreakout,
     volatilityRange,
     monteCarloSim,
+    bootstrapSim,
+    rollingRiskMetrics,
     linearRegressionChannel
   };
 })();
