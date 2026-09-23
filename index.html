@@ -212,6 +212,7 @@
             </label>
           </div>
           <div id="price-chart"></div>
+          <div id="ratio-zscore-note" style="font-size:12px;color:var(--text-muted);margin-top:8px"></div>
           <p id="chart-mode-note" style="font-size:11px;color:var(--text-muted);margin-top:8px">
             This chart drives the automated verdict below — indicators here feed the bull/bear scoring.
           </p>
@@ -399,6 +400,13 @@
               Computed from daily price returns over the loaded history.
             </p>
             <div id="risk-metrics-row" class="metrics-row"></div>
+            <div style="margin-top:16px">
+              <div style="font-weight:700;font-size:13px;margin-bottom:4px">30-Day Rolling Volatility &amp; Sharpe</div>
+              <p style="font-size:11px;color:var(--text-muted);margin-bottom:8px">
+                How risk has evolved over time, not just where it stands today.
+              </p>
+              <div id="rolling-risk-chart" style="height:260px"></div>
+            </div>
             <div id="return-projection"></div>
             <div id="beta-correlation" style="margin-top:14px"></div>
           </div>
@@ -446,12 +454,19 @@
               continues and that daily returns are normally distributed, which real markets only approximate
               (actual moves can be larger and more frequent than a normal distribution suggests).
             </p>
-            <div class="radio-group" id="mc-horizon-group" style="margin-bottom:12px">
+            <div class="radio-group" id="mc-horizon-group" style="margin-bottom:10px">
               <label><input type="radio" name="mc-horizon" value="21" /><span>1M</span></label>
               <label><input type="radio" name="mc-horizon" value="63" checked /><span>3M</span></label>
               <label><input type="radio" name="mc-horizon" value="126" /><span>6M</span></label>
               <label><input type="radio" name="mc-horizon" value="252" /><span>1Y</span></label>
             </div>
+            <div class="radio-group" id="mc-method-group" style="margin-bottom:12px">
+              <label><input type="radio" name="mc-method" value="gbm" checked /><span>Normal (GBM)</span></label>
+              <label><input type="radio" name="mc-method" value="bootstrap" /><span>Historical Bootstrap</span></label>
+            </div>
+            <p id="mc-method-note" style="font-size:11px;color:var(--text-muted);margin:-6px 0 10px">
+              GBM assumes daily returns follow a normal distribution — simple, but smooths over real market fat tails.
+            </p>
             <button type="button" id="mc-run-btn" class="analyse-btn" style="padding:9px 20px;font-size:13px">
               Run Simulation
             </button>
