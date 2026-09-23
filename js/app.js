@@ -1822,10 +1822,27 @@ const App = (() => {
     return any ? out : null;
   }
 
+  // Z-score of the most recent value against the series' own history —
+  // turns "here's a line you can eyeball" into an actual statistical
+  // cheap/expensive signal: how many standard deviations from its own
+  // average is today's reading?
+  function seriesZScore(series) {
+    if (!series || !series.values) return null;
+    const valid = series.values.filter((v) => v != null);
+    if (valid.length < 20) return null;
+    const mean = valid.reduce((a, b) => a + b, 0) / valid.length;
+    const variance = valid.reduce((a, b) => a + (b - mean) * (b - mean), 0) / valid.length;
+    const stdDev = Math.sqrt(variance);
+    const current = series.values[series.values.length - 1];
+    if (current == null || stdDev === 0) return null;
+    return { current, mean, stdDev, z: (current - mean) / stdDev };
+  }
+
   function drawPriceChart() {
     if (typeof Charts === 'undefined') return;
     const target = state.fullscreenChart ? '#price-chart-fullscreen' : '#price-chart';
 
+    const zNote = $('#ratio-zscore-note');
     if (state.priceMode === 'pe' || state.priceMode === 'pb') {
       if (!state.df) return;
       const t = (state.sheet && state.sheet.tables) || {};
@@ -1839,11 +1856,29 @@ const App = (() => {
           host.innerHTML =
             '<p style="color:var(--text-muted);font-size:13px;padding:20px">Not enough data to compute a historical ' +
             state.priceMode.toUpperCase() + ' chart for this stock.</p>';
+        if (zNote) zNote.textContent = '';
         return;
       }
       Charts.ratioChart(series.dates, series.values, state.priceMode === 'pe' ? 'P/E Ratio' : 'P/B Ratio', target);
+      if (zNote && !state.fullscreenChart) {
+        const zs = seriesZScore(series);
+        const label = state.priceMode.toUpperCase();
+        if (zs) {
+          const direction = zs.z <= -1 ? 'below' : zs.z >= 1 ? 'above' : 'near';
+          const read = zs.z <= -1 ? 'statistically cheap' : zs.z >= 1 ? 'statistically expensive' : 'roughly fair';
+          zNote.innerHTML =
+            'Current ' + label + ' of ' + zs.current.toFixed(1) + ' is <b>' + Math.abs(zs.z).toFixed(1) +
+            'σ ' + direction + '</b> its own average of ' + zs.mean.toFixed(1) + ' — <b>' + read +
+            '</b> relative to its own history (not to peers or the market).';
+        } else {
+          zNote.textContent = '';
+        }
+      } else if (zNote) {
+        zNote.textContent = '';
+      }
       return;
     }
+    if (zNote) zNote.textContent = '';
 
     if (state.intradayInterval && state.intradayDf) {
       Charts.priceChart(state.intradayDf, state.showBollinger, null, 0, target, null, state.chartType);
@@ -1994,6 +2029,17 @@ const App = (() => {
     host.innerHTML = html || '<p style="font-size:13px;color:var(--text-muted)">No notable pattern or breakout on the latest candle(s).</p>';
   }
 
+  function renderRollingRiskChart(df) {
+    const host = $('#rolling-risk-chart');
+    if (!host) return;
+    const rolling = Indicators.rollingRiskMetrics(df, 30);
+    if (!rolling) {
+      host.innerHTML = '<p style="font-size:12px;color:var(--text-muted)">Not enough price history for a rolling risk chart.</p>';
+      return;
+    }
+    Charts.rollingRiskChart(rolling.dates, rolling.volatility, rolling.sharpe, 'rolling-risk-chart');
+  }
+
   function renderRiskMetrics(df, sheet) {
     const host = $('#risk-metrics-row');
     if (!host) return;
@@ -2026,6 +2072,7 @@ const App = (() => {
 
     renderReturnProjection(df, sheet, m);
     renderBetaCorrelation(df);
+    renderRollingRiskChart(df);
   }
 
   function renderBetaCorrelation(df) {
@@ -2424,6 +2471,8 @@ const App = (() => {
     const resultEl = $('#mc-result');
     const horizonInput = document.querySelector('input[name="mc-horizon"]:checked');
     const days = horizonInput ? parseInt(horizonInput.value, 10) : 63;
+    const methodInput = document.querySelector('input[name="mc-method"]:checked');
+    const method = methodInput ? methodInput.value : 'gbm';
     const numSims = 200;
 
     if (btn) { btn.disabled = true; btn.textContent = 'Simulating…'; }
@@ -2431,7 +2480,10 @@ const App = (() => {
     // runs on the main thread — a few hundred paths over up to a year of
     // steps is fast (well under a second) but not instant.
     setTimeout(() => {
-      const result = Indicators.monteCarloSim(state.df, days, numSims);
+      const result =
+        method === 'bootstrap'
+          ? Indicators.bootstrapSim(state.df, days, numSims)
+          : Indicators.monteCarloSim(state.df, days, numSims);
       if (!result) {
         if (resultEl) resultEl.textContent = 'Not enough price history to run a simulation for this stock.';
         if (btn) { btn.disabled = false; btn.textContent = 'Run Simulation'; }
@@ -2439,15 +2491,21 @@ const App = (() => {
       }
       Charts.monteCarloChart(result.simMatrix);
       const horizonLabel = days === 21 ? '1 month' : days === 63 ? '3 months' : days === 126 ? '6 months' : '1 year';
+      const methodLabel = method === 'bootstrap' ? 'Historical Bootstrap' : 'Normal (GBM)';
       if (resultEl) {
         resultEl.innerHTML =
-          'Over the next <b>' + horizonLabel + '</b> (' + numSims + ' simulated paths, ' +
+          'Over the next <b>' + horizonLabel + '</b> — <b>' + methodLabel + '</b> (' + numSims + ' simulated paths, ' +
           result.annualVolPct.toFixed(1) + '% annualized volatility):<br>' +
           '10th percentile: <b>' + formatINR(result.p10) + '</b> &nbsp;·&nbsp; ' +
           'Median: <b>' + formatINR(result.p50) + '</b> &nbsp;·&nbsp; ' +
           '90th percentile: <b>' + formatINR(result.p90) + '</b><br>' +
           "Probability of being above today's price (" + formatINR(result.lastPrice) + '): <b>' +
-          (result.probAbove * 100).toFixed(0) + '%</b>';
+          (result.probAbove * 100).toFixed(0) + '%</b><br>' +
+          '<span style="color:var(--red)">95% VaR: <b>' + result.var95.toFixed(1) + '%</b> &nbsp;·&nbsp; ' +
+          'Expected Shortfall (CVaR 95%): <b>' + result.cvar95.toFixed(1) + '%</b></span>' +
+          '<div style="font-size:11px;color:var(--text-muted);margin-top:6px">' +
+          'In the worst 5% of simulated outcomes, the average loss was ' + Math.abs(result.cvar95).toFixed(1) +
+          '% — a fuller picture of the downside tail than VaR alone.</div>';
       }
       if (btn) { btn.disabled = false; btn.textContent = 'Run Simulation'; }
     }, 30);
@@ -3578,6 +3636,17 @@ const App = (() => {
     wireChartStyleRadios('chart-style-fs');
 
     const mcRunBtn = $('#mc-run-btn');
+    $$('input[name="mc-method"]').forEach((radio) => {
+      radio.addEventListener('change', (e) => {
+        const note = $('#mc-method-note');
+        if (note) {
+          note.textContent =
+            e.target.value === 'bootstrap'
+              ? 'Resamples this stock\'s own actual historical daily returns — captures real fat tails and skew instead of assuming a bell curve.'
+              : 'GBM assumes daily returns follow a normal distribution — simple, but smooths over real market fat tails.';
+        }
+      });
+    });
     if (mcRunBtn) mcRunBtn.addEventListener('click', runMonteCarlo);
 
     const peerBtn = $('#peer-compare-btn');
