@@ -7,7 +7,7 @@ const SHEETS_API = 'https://script.google.com/macros/s/AKfycbxgR0EC7xaqe9H0Wx9gG
 const SHEETS_ANALYSE_TIMEOUT_MS = 185000;
 // Your GitHub Pages URL for this app — shown at the end of the shared text
 // report so whoever receives it can open the app themselves.
-const APP_URL = 'https://niveshaka-bandhu.github.io/market-watch/';
+const APP_URL = 'https://YOUR-USERNAME.github.io/YOUR-REPO/';
 
 const App = (() => {
   let state = {
@@ -355,7 +355,7 @@ const App = (() => {
     heading(displayName + (displayName !== ticker ? ' (' + ticker + ')' : '') + ' — Analysis Report', 18);
     doc.setFontSize(9);
     doc.setTextColor(120, 120, 120);
-    doc.text('Generated ' + new Date().toLocaleString('en-IN') + '  ·  Quant Verdict', margin, y);
+    doc.text('Generated ' + new Date().toLocaleString('en-IN') + ' by Quant Verdict', margin, y);
     doc.setTextColor(0, 0, 0);
     y += 22;
 
@@ -1016,6 +1016,28 @@ const App = (() => {
       return;
     }
 
+    // Rows where an increase from the previous period is a good sign —
+    // colored light green on up, light pink on down. Deliberately a short,
+    // high-confidence list rather than trying to classify every row: things
+    // like "Total Assets" or "Other Liabilities" growing isn't unambiguously
+    // good or bad for every company, so those are left uncolored rather
+    // than risk a misleading signal.
+    const GOOD_UP_ROWS = [
+      'sales', 'net profit', 'operating profit', 'eps', 'return on equity', 'roce',
+      'promoter', 'fii', 'dii', 'free cash flow', 'cash from operating activity'
+    ];
+    // Rows where a DECREASE from the previous period is the good sign.
+    const GOOD_DOWN_ROWS = [
+      'borrowings', 'debtor days', 'inventory days', 'days payable',
+      'working capital days', 'cash conversion cycle'
+    ];
+    function rowColorDirection(label) {
+      const low = (label || '').toLowerCase();
+      if (GOOD_UP_ROWS.some((p) => low.indexOf(p) >= 0)) return 'up';
+      if (GOOD_DOWN_ROWS.some((p) => low.indexOf(p) >= 0)) return 'down';
+      return null;
+    }
+
     function htmlTable(title, table) {
       if (!table || !table.rows || !table.rows.length) return '';
       const headers = table.headers || [];
@@ -1035,9 +1057,22 @@ const App = (() => {
         .map((row) => {
           let tds = '<td>' + (row.label || '') + '</td>';
           const cells = row.cells || [];
+          const direction = rowColorDirection(row.label);
+          let prevVal = null;
           for (let c = Math.max(startC, 2); c < headers.length; c++) {
             if (!headers[c]) continue;
-            tds += '<td>' + (cells[c] != null && cells[c] !== '' ? cells[c] : '—') + '</td>';
+            const raw = cells[c] != null && cells[c] !== '' ? cells[c] : '—';
+            let style = '';
+            if (direction) {
+              const val = parseNum(cells[c]);
+              if (val != null && prevVal != null && val !== prevVal) {
+                const up = val > prevVal;
+                const good = direction === 'up' ? up : !up;
+                style = good ? ' style="background:rgba(34,197,94,0.16)"' : ' style="background:rgba(239,68,68,0.14)"';
+              }
+              if (val != null) prevVal = val;
+            }
+            tds += '<td' + style + '>' + raw + '</td>';
           }
           return '<tr>' + tds + '</tr>';
         })
@@ -1124,6 +1159,7 @@ const App = (() => {
       return (
         '<div class="card" style="margin-top:14px;overflow-x:auto">' +
         '<h3>Piotroski F-Score: ' + pt.score + ' / ' + pt.max + '</h3>' +
+        scoreBarHtml('Piotroski F-Score', pt.score, pt.max, pt.checks) +
         '<p style="font-size:11.5px;color:var(--text-muted);margin-bottom:10px">' +
         (pt.max < 9
           ? (9 - pt.max) + ' of the 9 standard criteria couldn\'t be evaluated (Screener doesn\'t report that row for this company) and are excluded rather than counted as fails. '
@@ -1371,6 +1407,79 @@ const App = (() => {
     );
   }
 
+  // Trendlyne "Check Before You Buy"-style zone bar: a 0-to-max track with
+  // red/yellow/green zones and a triangle marker at the actual score,
+  // plus pass/fail counts. Shared by Piotroski and NB Score so both
+  // multi-checkpoint scores get the same at-a-glance treatment.
+  function scoreBarHtml(title, score, max, checks) {
+    const passCount = checks.filter((c) => c.pass === true).length;
+    const failCount = checks.filter((c) => c.pass === false).length;
+    const pct = max > 0 ? Math.max(0, Math.min(100, (score / max) * 100)) : 0;
+    const z1 = Math.round(max * 0.4);
+    const z2 = Math.round(max * 0.65);
+    const gradient =
+      'linear-gradient(to right, #ef4444 0%, #ef4444 40%, #eab308 40%, #eab308 65%, #22c55e 65%, #22c55e 100%)';
+    return (
+      '<div class="score-bar-widget">' +
+      '<div class="score-bar-header"><span style="font-weight:700">' + title + '</span>' +
+      '<span class="score-bar-counts"><span class="pos">' + passCount + ' Positive</span> · <span class="neg">' +
+      failCount + ' Negative</span></span></div>' +
+      '<div class="score-bar-track" style="background:' + gradient + '">' +
+      '<div class="score-bar-marker" style="left:' + pct.toFixed(1) + '%"></div>' +
+      '</div>' +
+      '<div class="score-bar-scale"><span>0</span><span>' + z1 + '</span><span>' + z2 + '</span><span>' + max + '</span></div>' +
+      '</div>'
+    );
+  }
+
+  // "Gauge by NB" — semicircular speedometer for the NB Score specifically,
+  // same visual family as sentiment-gauge widgets (needle + colored zones).
+  function nbGaugeSvg(score, max) {
+    const cx = 110, cy = 100, r = 90;
+    const pct = max > 0 ? Math.max(0, Math.min(1, score / max)) : 0;
+    const zones = [
+      { from: 0, to: 0.4, color: '#ef4444' },
+      { from: 0.4, to: 0.6, color: '#f59e0b' },
+      { from: 0.6, to: 0.8, color: '#84cc16' },
+      { from: 0.8, to: 1, color: '#16a34a' }
+    ];
+    function pointAt(frac, radius) {
+      const a = Math.PI * (1 - frac);
+      return [cx + radius * Math.cos(a), cy - radius * Math.sin(a)];
+    }
+    const arcPaths = zones
+      .map((z) => {
+        const [x1, y1] = pointAt(z.from, r);
+        const [x2, y2] = pointAt(z.to, r);
+        const largeArc = z.to - z.from > 0.5 ? 1 : 0;
+        return (
+          '<path d="M ' + x1.toFixed(1) + ' ' + y1.toFixed(1) + ' A ' + r + ' ' + r + ' 0 ' + largeArc +
+          ' 0 ' + x2.toFixed(1) + ' ' + y2.toFixed(1) + '" stroke="' + z.color +
+          '" stroke-width="16" fill="none" stroke-linecap="butt"/>'
+        );
+      })
+      .join('');
+    const needleAngle = Math.PI * (1 - pct);
+    const needleLen = r - 16;
+    const tipX = cx + needleLen * Math.cos(needleAngle);
+    const tipY = cy - needleLen * Math.sin(needleAngle);
+    const [weakX, weakY] = pointAt(0.02, r + 16);
+    const [excX, excY] = pointAt(0.98, r + 16);
+
+    return (
+      '<svg viewBox="0 0 220 132" width="100%" height="150" style="display:block;margin:0 auto">' +
+      arcPaths +
+      '<text x="' + weakX.toFixed(1) + '" y="' + weakY.toFixed(1) + '" font-size="9" font-weight="700" fill="#9ca3af" text-anchor="start">WEAK</text>' +
+      '<text x="' + excX.toFixed(1) + '" y="' + excY.toFixed(1) + '" font-size="9" font-weight="700" fill="#16a34a" text-anchor="end">EXCELLENT</text>' +
+      '<line x1="' + cx + '" y1="' + cy + '" x2="' + tipX.toFixed(1) + '" y2="' + tipY.toFixed(1) +
+      '" stroke="#1b1f3b" stroke-width="3" stroke-linecap="round"/>' +
+      '<circle cx="' + cx + '" cy="' + cy + '" r="6" fill="#1b1f3b"/>' +
+      '<text x="' + cx + '" y="' + (cy + 28) + '" text-anchor="middle" font-size="24" font-weight="800" font-family="IBM Plex Mono, monospace" fill="#1b1f3b">' +
+      score + '/' + max + '</text>' +
+      '</svg>'
+    );
+  }
+
   function miniTag(cssClass, text) {
     const color =
       cssClass === 'strong-buy' ? 'var(--green)' :
@@ -1456,6 +1565,9 @@ const App = (() => {
     return (
       '<div class="card" style="margin-top:14px">' +
       '<h3>NB Score: ' + nb.score + ' / ' + nb.max + ' — ' + nb.tag + '</h3>' +
+      '<div class="nb-gauge-widget">' + nbGaugeSvg(nb.score, nb.max) +
+      '<div class="nb-gauge-label">GAUGE BY NB</div></div>' +
+      scoreBarHtml('NB Score', nb.score, nb.max, nb.checks) +
       '<p style="font-size:11px;color:var(--text-muted);margin-bottom:8px">' +
       'A Piotroski-style checklist for long-term investors: 3 chart-based checks + 7 fundamental checks. ' +
       'See the Learn tab for what each check means.</p>' +
