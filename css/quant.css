@@ -12,6 +12,7 @@
   --red: #e91f2b;       /* NSE brand red */
   --yellow: #efb41d;    /* NSE brand gold */
   --orange: #e66f25;    /* NSE brand orange */
+  --font-data: 'IBM Plex Mono', ui-monospace, SFMono-Regular, monospace;
 }
 
 * {
@@ -24,6 +25,7 @@ body {
   font-family: 'Inter', system-ui, -apple-system, sans-serif;
   background: var(--bg);
   color: var(--text);
+  font-variant-numeric: tabular-nums; /* digits align, don't jitter as values update */
   line-height: 1.5;
   min-height: 100vh;
 }
@@ -78,9 +80,9 @@ body {
 }
 
 .control-group label {
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
   color: var(--text-muted);
   font-weight: 600;
 }
@@ -202,10 +204,12 @@ input[type="text"]:focus {
 }
 
 .bottom-line-box {
-  border-radius: 12px;
-  padding: 18px 20px;
-  margin-bottom: 14px;
-  border: 2px solid;
+  border-radius: 14px;
+  padding: 22px 22px 20px;
+  margin-bottom: 16px;
+  border: 3px solid;
+  box-shadow: 0 8px 24px -8px rgba(27, 31, 59, 0.25);
+  position: relative;
 }
 
 .w52-widget {
@@ -266,6 +270,7 @@ input[type="text"]:focus {
   justify-content: space-between;
   font-size: 12px;
   font-weight: 600;
+  font-family: var(--font-data);
   color: var(--text);
 }
 
@@ -349,25 +354,82 @@ input[type="text"]:focus {
   white-space: pre-line;
 }
 
+.score-bar-widget {
+  margin: 10px 0 16px;
+}
+
+.score-bar-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12.5px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.score-bar-counts .pos { color: var(--green); font-weight: 700; }
+.score-bar-counts .neg { color: var(--red); font-weight: 700; }
+
+.score-bar-track {
+  position: relative;
+  height: 8px;
+  border-radius: 4px;
+  margin: 16px 4px 6px;
+}
+
+.score-bar-marker {
+  position: absolute;
+  top: -9px;
+  width: 0;
+  height: 0;
+  border-left: 6px solid transparent;
+  border-right: 6px solid transparent;
+  border-top: 8px solid var(--text);
+  transform: translateX(-50%);
+}
+
+.score-bar-scale {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--text-muted);
+  padding: 0 4px;
+}
+
+.nb-gauge-widget {
+  text-align: center;
+  margin-bottom: 12px;
+}
+
+.nb-gauge-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  color: var(--text-muted);
+  margin-top: -6px;
+}
+
 .bottom-line-box:empty { display: none; }
 
 .bottom-line-box .bl-label {
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  opacity: 0.7;
-  margin-bottom: 4px;
-}
-
-.bottom-line-box .bl-action {
-  font-size: 19px;
-  font-weight: 800;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  opacity: 0.75;
   margin-bottom: 6px;
 }
 
+.bottom-line-box .bl-action {
+  font-size: 23px;
+  font-weight: 800;
+  line-height: 1.25;
+  margin-bottom: 8px;
+}
+
 .bottom-line-box .bl-reason {
-  font-size: 13px;
-  line-height: 1.5;
+  font-size: 13.5px;
+  line-height: 1.55;
   opacity: 0.95;
 }
 
@@ -383,9 +445,9 @@ input[type="text"]:focus {
 }
 
 .verdict-badge .vb-label {
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
   opacity: 0.75;
   margin-bottom: 4px;
 }
@@ -423,9 +485,9 @@ input[type="text"]:focus {
 }
 
 .metric-card .label {
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
   color: var(--text-muted);
   margin-bottom: 4px;
 }
@@ -433,6 +495,7 @@ input[type="text"]:focus {
 .metric-card .value {
   font-size: 20px;
   font-weight: 700;
+  font-family: var(--font-data);
   font-variant-numeric: tabular-nums;
 }
 
@@ -791,11 +854,10 @@ footer {
 
 /* ===== Stock Lookup (Screener-style) ===== */
 .lookup-label {
-  font-size: 11px !important;
-  letter-spacing: 0.08em !important;
+  font-size: 11.5px !important;
+  letter-spacing: 0.01em !important;
   color: #ffd98a !important;
   font-weight: 700 !important;
-  text-transform: uppercase !important;
 }
 .lookup-row {
   display: flex;
