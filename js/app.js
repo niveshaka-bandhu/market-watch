@@ -618,6 +618,28 @@ const App = (() => {
       y += 8;
     }
 
+    const pdfEm = computeEarningsMomentum(d);
+    if (pdfEm) {
+      heading('Earnings Momentum (year-over-year)', 12);
+      para(
+        pdfEm.rows
+          .map(
+            (r) =>
+              r.label + ': ' +
+              [
+                pdfEm.hasSales ? 'Sales ' + yoyText(r.sales) : null,
+                pdfEm.hasProfit ? 'Profit ' + yoyText(r.profit) : null,
+                pdfEm.hasEps ? 'EPS ' + yoyText(r.eps) : null
+              ]
+                .filter(Boolean)
+                .join(', ')
+          )
+          .join('\n')
+      );
+      if (pdfEm.takeaway) para(pdfEm.takeaway);
+      y += 8;
+    }
+
     const pdfDupont = duPontAnalysis(d, sn2);
     const altman = altmanZScore(d, sn2);
     const acq = acquirersMultiple(d, sn2);
@@ -770,6 +792,13 @@ const App = (() => {
     if (trends.length) {
       lines.push('📊 *Quality Trends*');
       trends.forEach((r) => lines.push(r.label + ': ' + fmt(r.latest, 2) + r.unit + ' (' + r.tag + ')'));
+      lines.push('');
+    }
+
+    const emText = computeEarningsMomentum(d);
+    if (emText && emText.takeaway) {
+      lines.push('📈 *Earnings Momentum*');
+      lines.push(emText.takeaway);
       lines.push('');
     }
 
@@ -1206,6 +1235,7 @@ const App = (() => {
       ]) +
       '</div>' +
       qualityMoatSection(d) +
+      earningsMomentumSection(d) +
       nbScoreSection() +
       advancedModelsSection(d) +
       growthTable(g, pg, pc, roe) +
@@ -1572,6 +1602,167 @@ const App = (() => {
       'A Piotroski-style checklist for long-term investors: 3 chart-based checks + 7 fundamental checks. ' +
       'See the Learn tab for what each check means.</p>' +
       '<ul class="bull-list" style="list-style:none;padding:0">' + rows + '</ul></div>'
+    );
+  }
+
+  // ---------------- Earnings Momentum ----------------
+  // Year-over-year growth for each reported quarter, matched by DATE (the
+  // same quarter one year earlier) rather than by column position, so a
+  // missing quarter in the scrape can't silently pair the wrong periods.
+  // Comparing like with like also keeps seasonality from distorting the read.
+  function quarterlyYoY(table, labelPart) {
+    const row = tableRow(table, labelPart);
+    if (!row || !table.headers) return null;
+    const pts = [];
+    table.headers.forEach((h, i) => {
+      const dt = parsePeriodLabel(h);
+      const v = parseNum(row.cells[i]);
+      if (dt && v != null) pts.push({ label: h, t: dt.getTime(), v });
+    });
+    if (pts.length < 2) return null;
+    pts.sort((a, b) => a.t - b.t);
+    const DAY = 86400000;
+    return pts.map((p) => {
+      const base = pts.find((q) => Math.abs(p.t - q.t - 365 * DAY) <= 20 * DAY);
+      // A percentage change off a zero/negative base isn't meaningful, so
+      // growth stays null there and is described in words instead.
+      const growth = base && base.v > 0 ? ((p.v - base.v) / base.v) * 100 : null;
+      return { label: p.label, v: p.v, base: base ? base.v : null, growth };
+    });
+  }
+
+  function yoyText(p) {
+    if (!p || p.base == null) return '—';
+    if (p.base <= 0) return p.v > 0 ? 'Turnaround' : '—';
+    if (p.v < 0) return 'Swung to loss';
+    return (p.growth >= 0 ? '+' : '') + p.growth.toFixed(1) + '%';
+  }
+
+  // 1 = good, -1 = bad, 0 = flat/unknown
+  function yoyTone(p) {
+    if (!p || p.base == null) return 0;
+    if (p.base <= 0) return p.v > 0 ? 1 : 0;
+    if (p.v < 0) return -1;
+    return p.growth > 0 ? 1 : p.growth < 0 ? -1 : 0;
+  }
+
+  function growthStreak(series) {
+    let n = 0;
+    for (let i = series.length - 1; i >= 0; i--) {
+      if (yoyTone(series[i]) === 1) n++;
+      else break;
+    }
+    return n;
+  }
+
+  function computeEarningsMomentum(d) {
+    const q = (d.tables || {}).quarterly;
+    if (!q) return null;
+    // Banks and NBFCs report "Revenue" rather than "Sales".
+    const sales = quarterlyYoY(q, 'sales') || quarterlyYoY(q, 'revenue');
+    const profit = quarterlyYoY(q, 'net profit');
+    const eps = quarterlyYoY(q, 'eps');
+    const primary = profit || sales;
+    // Needs at least one quarter with a year-earlier comparison (5+ quarters of history).
+    if (!primary || !primary.some((p) => p.base != null)) return null;
+
+    const find = (series, label) => (series ? series.find((p) => p.label === label) || null : null);
+    const rows = primary.slice(-4).map((p) => ({
+      label: p.label,
+      sales: find(sales, p.label),
+      profit: find(profit, p.label),
+      eps: find(eps, p.label)
+    }));
+
+    const latestP = profit ? profit[profit.length - 1] : null;
+    const prevP = profit && profit.length > 1 ? profit[profit.length - 2] : null;
+    const pStreak = profit ? growthStreak(profit) : 0;
+    let trend = null;
+    if (latestP && prevP && latestP.growth != null && prevP.growth != null && latestP.v > 0 && prevP.v > 0) {
+      const diff = latestP.growth - prevP.growth;
+      trend = diff > 5 ? 'accelerating' : diff < -5 ? 'slowing' : 'steady';
+    }
+
+    const parts = [];
+    const lead = latestP || (sales ? sales[sales.length - 1] : null);
+    const leadName = latestP ? 'Net profit' : 'Sales';
+    const leadStreak = latestP ? pStreak : sales ? growthStreak(sales) : 0;
+    const tone = yoyTone(lead);
+    if (lead && lead.base != null) {
+      if (tone === 1 && leadStreak >= 2) {
+        parts.push(leadName + ' has grown year-over-year for ' + leadStreak + ' straight quarters');
+      } else if (tone === 1) {
+        parts.push(leadName + ' grew year-over-year in the latest quarter');
+      } else if (tone === -1) {
+        parts.push(leadName + ' fell year-over-year in the latest quarter');
+      } else {
+        parts.push(leadName + ' was flat year-over-year in the latest quarter');
+      }
+      if (latestP && tone === 1) {
+        // "Accelerating"/"slowing" only describes growth that follows growth;
+        // after a down quarter it's a rebound, which is a different story.
+        if (prevP && yoyTone(prevP) === -1) {
+          parts[0] += ', a rebound after falling in the prior quarter';
+        } else if (trend && prevP && yoyTone(prevP) === 1) {
+          parts[0] += trend === 'steady' ? ', at a steady pace' : ', and growth is ' + trend;
+        }
+      }
+      parts[0] += '.';
+    }
+    const lastSales = sales ? sales[sales.length - 1] : null;
+    if (latestP && lastSales && lastSales.base != null && lastSales.base > 0 && lastSales.v > 0) {
+      const sg = lastSales.growth;
+      parts.push(
+        Math.abs(sg) < 0.05
+          ? 'Sales were flat year-over-year.'
+          : 'Sales ' + (sg > 0 ? 'grew ' : 'fell ') + Math.abs(sg).toFixed(1) + '% year-over-year.'
+      );
+    }
+
+    return {
+      rows,
+      takeaway: parts.join(' '),
+      tone,
+      hasSales: !!sales,
+      hasProfit: !!profit,
+      hasEps: !!eps
+    };
+  }
+
+  function earningsMomentumSection(d) {
+    const em = computeEarningsMomentum(d);
+    if (!em) return '';
+    const cell = (p) => {
+      const tone = yoyTone(p);
+      const bg = tone === 1 ? 'background:rgba(34,197,94,0.16)' : tone === -1 ? 'background:rgba(239,68,68,0.14)' : '';
+      return '<td style="' + bg + '">' + yoyText(p) + '</td>';
+    };
+    const head =
+      '<th>Quarter</th>' +
+      (em.hasSales ? '<th>Sales YoY</th>' : '') +
+      (em.hasProfit ? '<th>Net Profit YoY</th>' : '') +
+      (em.hasEps ? '<th>EPS YoY</th>' : '');
+    const body = em.rows
+      .map(
+        (r) =>
+          '<tr><td>' + r.label + '</td>' +
+          (em.hasSales ? cell(r.sales) : '') +
+          (em.hasProfit ? cell(r.profit) : '') +
+          (em.hasEps ? cell(r.eps) : '') +
+          '</tr>'
+      )
+      .join('');
+    const color = em.tone === 1 ? 'var(--green)' : em.tone === -1 ? 'var(--red)' : 'var(--text-muted)';
+    return (
+      '<div class="card" style="margin-top:14px;overflow-x:auto">' +
+      '<h3>Earnings Momentum</h3>' +
+      '<p style="font-size:11.5px;color:var(--text-muted);margin-bottom:10px">' +
+      'Each quarter compared with the same quarter a year earlier, so seasonality doesn\'t distort the read.</p>' +
+      '<table class="data-table"><thead><tr>' + head + '</tr></thead><tbody>' + body + '</tbody></table>' +
+      (em.takeaway
+        ? '<p style="font-size:12.5px;margin-top:10px;font-weight:600;color:' + color + '">' + em.takeaway + '</p>'
+        : '') +
+      '</div>'
     );
   }
 
@@ -2775,6 +2966,36 @@ const App = (() => {
     renderSheetDashboard(state.sheet);
   }
 
+  // ---------------- Expected Return & What's Priced In ----------------
+  // Pure scenario maths (no DOM) so it can be tested on its own. Forward: if
+  // EPS compounds at growthPct for `years` and the stock then trades at
+  // exitPE, what's the price and the annualized return? Reverse: what EPS
+  // growth does today's price need in order to earn requiredPct a year?
+  // Dividends are deliberately excluded, and none of this is a forecast.
+  function expectedReturnForward(o) {
+    const f = 1 + o.growthPct / 100;
+    if (!(o.price > 0) || !(o.eps > 0) || !(o.years > 0) || !(o.exitPE > 0) || !(f > 0)) return null;
+    const futureEps = o.eps * Math.pow(f, o.years);
+    const futurePrice = futureEps * o.exitPE;
+    return {
+      futureEps,
+      futurePrice,
+      totalPct: (futurePrice / o.price - 1) * 100,
+      cagrPct: (Math.pow(futurePrice / o.price, 1 / o.years) - 1) * 100
+    };
+  }
+
+  function impliedGrowth(o) {
+    if (!(o.price > 0) || !(o.eps > 0) || !(o.years > 0) || !(o.exitPE > 0) || !(1 + o.requiredPct / 100 > 0)) {
+      return null;
+    }
+    const targetPrice = o.price * Math.pow(1 + o.requiredPct / 100, o.years);
+    return {
+      targetPrice,
+      growthPct: (Math.pow(targetPrice / (o.eps * o.exitPE), 1 / o.years) - 1) * 100
+    };
+  }
+
   function renderValuationWidgets(last) {
     const info = state.info || {};
     const d = state.sheet || {};
@@ -2921,6 +3142,91 @@ const App = (() => {
       ccPriceEl.oninput = ccCagrEl.oninput = ccYearsEl.oninput = updateCompounding;
       if (ccSipEl) ccSipEl.oninput = updateCompounding;
       updateCompounding();
+    }
+
+    // ---- Expected Return & What's Priced In ----
+    const erPriceEl = $('#er-price');
+    const erEpsEl = $('#er-eps');
+    const erGrowthEl = $('#er-growth');
+    const erYearsEl = $('#er-years');
+    const erPeEl = $('#er-pe');
+    const erReqEl = $('#er-req');
+    if (erPriceEl && erEpsEl && erGrowthEl && erYearsEl && erPeEl && erReqEl) {
+      const snp = d.snapshot || {};
+      const pgr = d.profitGrowth || {};
+      const histGrowth = pgr.y5 != null ? pgr.y5 : pgr.y3 != null ? pgr.y3 : null;
+      const histLabel = pgr.y5 != null ? '5-year' : '3-year';
+
+      if (!erPriceEl.value) {
+        const px = info.currentPrice != null ? info.currentPrice : snp.currentPrice;
+        if (px != null) erPriceEl.value = Number(px).toFixed(2);
+      }
+      if (!erEpsEl.value && d.trailingEps != null) erEpsEl.value = Number(d.trailingEps).toFixed(2);
+      if (!erGrowthEl.value) {
+        // Historical growth, kept within 5-25% so one unusual stretch can't
+        // produce an absurd default; the same 5% floor the Graham/Lynch
+        // calculators use for negative growth. Editable either way.
+        erGrowthEl.value = histGrowth == null ? 12 : Math.max(5, Math.min(25, histGrowth));
+      }
+      if (!erPeEl.value) {
+        // Today's P/E = no re-rating; lowering it is the cautious case.
+        if (snp.stockPE != null && snp.stockPE > 0) erPeEl.value = Number(snp.stockPE).toFixed(1);
+        else if (d.trailingEps > 0 && parseFloat(erPriceEl.value) > 0) {
+          erPeEl.value = (parseFloat(erPriceEl.value) / d.trailingEps).toFixed(1);
+        } else erPeEl.value = 20;
+      }
+
+      const RISK_FREE_PCT = 7; // approx. 10Y G-Sec — same assumption the Sharpe ratio uses
+      function updateExpectedReturn() {
+        const price = parseFloat(erPriceEl.value);
+        const eps = parseFloat(erEpsEl.value);
+        const growth = parseFloat(erGrowthEl.value);
+        const yrs = parseFloat(erYearsEl.value);
+        const pe = parseFloat(erPeEl.value);
+        const req = parseFloat(erReqEl.value);
+        const outF = $('#er-result');
+        const outR = $('#er-implied');
+        if (!outF || !outR) return;
+        if (!(eps > 0)) {
+          const msg = "Needs positive earnings per share — this stock's trailing EPS is zero or negative, so a P/E-based projection isn't meaningful.";
+          outF.textContent = msg;
+          outR.textContent = msg;
+          return;
+        }
+        const f = expectedReturnForward({ price, eps, growthPct: growth, years: yrs, exitPE: pe });
+        if (!f) {
+          outF.textContent = 'Enter a price, EPS, growth rate, number of years and exit P/E.';
+        } else {
+          const gap = f.cagrPct - RISK_FREE_PCT;
+          outF.innerHTML =
+            'EPS grows from ₹' + fmt(eps, 2) + ' to about ₹' + fmt(f.futureEps, 2) + ', so at ' + fmt(pe, 1) +
+            '× earnings the price would be about <strong>' + formatINR(f.futurePrice) + '</strong> in ' + yrs + ' years.<br>' +
+            "That's <strong>" + (f.totalPct >= 0 ? '+' : '') + fmt(f.totalPct, 0) + '%</strong> in total, roughly <strong>' +
+            fmt(f.cagrPct, 1) + '% a year</strong> before dividends — about ' + fmt(Math.abs(gap), 1) +
+            ' points ' + (gap >= 0 ? 'above' : 'below') + ' a ~' + RISK_FREE_PCT + '% risk-free rate.';
+        }
+        const r = impliedGrowth({ price, eps, years: yrs, exitPE: pe, requiredPct: req });
+        if (!r) {
+          outR.textContent = 'Enter a price, EPS, years, exit P/E and the annual return you want.';
+        } else if (r.growthPct <= 0) {
+          outR.innerHTML =
+            'To earn <strong>' + fmt(req, 1) + '% a year</strong> over ' + yrs + ' years, no EPS growth is needed — an exit P/E of ' +
+            fmt(pe, 1) + ' is high enough to deliver it on its own (EPS could even shrink about ' +
+            fmt(Math.abs(r.growthPct), 1) + '% a year). That leans on the P/E holding up, so test a lower exit P/E.';
+        } else {
+          outR.innerHTML =
+            'To earn <strong>' + fmt(req, 1) + '% a year</strong> over ' + yrs + ' years with an exit P/E of ' + fmt(pe, 1) +
+            ', EPS has to grow about <strong>' + fmt(r.growthPct, 1) + '% a year</strong>' +
+            (histGrowth != null
+              ? ' — ' + (r.growthPct <= histGrowth ? 'at or below' : 'above') + ' its own ' + histLabel +
+                ' profit growth of ' + fmt(histGrowth, 1) + '%.'
+              : '.');
+        }
+      }
+      [erPriceEl, erEpsEl, erGrowthEl, erYearsEl, erPeEl, erReqEl].forEach((el) => {
+        el.oninput = updateExpectedReturn;
+      });
+      updateExpectedReturn();
     }
 
     const note = $('#fundamentals-note');
@@ -3174,7 +3480,7 @@ const App = (() => {
       verdictInfo.macdHist = lastRow.macdHist;
 
       state.verdict = VerdictEngine.analyse(state.df, verdictInfo);
-      if (state.verdict && state.rawInput) {
+      if (state.verdict && state.rawInput && !state.fromCache && !state.chartStale) {
         saveVerdictHistoryEntry(state.rawInput, {
           date: new Date().toISOString().slice(0, 10),
           master: state.verdict.master,
@@ -3264,6 +3570,7 @@ const App = (() => {
   function applyChartResult(chartRes) {
     if (chartRes.history && chartRes.history.length >= 30) {
       state.df = Indicators.calculateAll(chartRes.history);
+      state.lastChartRes = chartRes;
       recomputeVerdict();
       return true;
     }
@@ -3327,8 +3634,18 @@ const App = (() => {
     if (btn) { btn.disabled = true; btn.textContent = 'Retrying…'; }
     const chartRes = await DataService.loadAll(state.ticker);
     state.info = chartRes.info || {};
+    // state.info was just replaced by the chart's own info — re-derive the
+    // fundamentals-based fields (ROE, EPS, book value, debt/equity...) from
+    // the sheet, or the verdicts silently lose them after a chart retry.
+    if (state.sheet) applySheet(state.sheet);
     const ok = applyChartResult(chartRes);
-    setWorkspace(state.view === 'market' ? 'market' : 'quant');
+    if (ok) {
+      state.chartFresh = true;
+      state.chartStale = false;
+      if (!state.fromCache) hideCacheBanner();
+      persistAnalysis();
+    }
+    refreshCurrentView();
     renderDataWarning();
     chartRetryInFlight = false;
     return ok;
@@ -3344,16 +3661,33 @@ const App = (() => {
     try {
       const res = await sheetsJsonp({ action: 'analyse', ticker: state.rawInput }, SHEETS_ANALYSE_TIMEOUT_MS);
       if (res && res.ok && res.data) {
-        applySheet(res.data);
-        recomputeVerdict();
-        ok = true;
+        if (state.fromCache && res.data.stable === false) {
+          // Keep the complete saved analysis on screen rather than swapping
+          // in a half-scraped sheet; returning false keeps the retry loop going.
+        } else {
+          state.sheetFresh = true;
+          if (state.fromCache) {
+            state.fromCache = false; // flip before recompute so the history entry gets recorded
+            if (state.chartStale) {
+              setCacheBanner(
+                "Fundamentals are fresh, but the price chart is still the one saved " + timeAgo(state.cachedAt) + '.'
+              );
+            } else {
+              hideCacheBanner();
+            }
+          }
+          applySheet(res.data);
+          recomputeVerdict();
+          ok = true;
+        }
       }
     } catch (e) {
       console.warn('Fundamentals retry failed:', e);
     }
-    setWorkspace(state.view === 'market' ? 'market' : 'quant');
+    refreshCurrentView();
     renderDataWarning();
     fundamentalsRetryInFlight = false;
+    if (ok) persistAnalysis();
     return ok;
   }
 
@@ -3377,6 +3711,155 @@ const App = (() => {
     }, 25000);
   }
 
+  // ---------- Saved-analysis cache (instant load) ----------
+  // Screener scrapes can take minutes, so the last few analyzed tickers are
+  // kept on the device and shown immediately (labeled with their age) while a
+  // fresh fetch runs in the background. Oldest entries are evicted beyond
+  // ANALYSIS_CACHE_MAX, and anything older than ANALYSIS_CACHE_MAX_AGE_MS is
+  // ignored. Every storage call is wrapped — private mode or a full quota
+  // must never break a normal load.
+  const ANALYSIS_CACHE_PREFIX = 'quantAnalysis:v1:';
+  const ANALYSIS_CACHE_INDEX = 'quantAnalysis:index:v1';
+  const ANALYSIS_CACHE_MAX = 6;
+  const ANALYSIS_CACHE_MAX_AGE_MS = 30 * 24 * 3600 * 1000;
+
+  function readCacheIndex() {
+    try {
+      const arr = JSON.parse(localStorage.getItem(ANALYSIS_CACHE_INDEX) || '[]');
+      return Array.isArray(arr) ? arr : [];
+    } catch (e) {
+      return [];
+    }
+  }
+
+  function writeCacheIndex(arr) {
+    try {
+      localStorage.setItem(ANALYSIS_CACHE_INDEX, JSON.stringify(arr));
+    } catch (e) {
+      /* ignore */
+    }
+  }
+
+  function saveAnalysisCache(raw, sheetData, chartRes) {
+    const key = ANALYSIS_CACHE_PREFIX + raw;
+    const payload = JSON.stringify({
+      ts: Date.now(),
+      sheet: sheetData,
+      chart:
+        chartRes && chartRes.history
+          ? { history: chartRes.history, info: chartRes.info || {} }
+          : null
+    });
+    try {
+      try {
+        localStorage.setItem(key, payload);
+      } catch (quotaErr) {
+        // Storage full: drop the oldest saved analysis and retry once.
+        const old = readCacheIndex();
+        const oldest = old.pop();
+        if (oldest) {
+          localStorage.removeItem(ANALYSIS_CACHE_PREFIX + oldest.t);
+          writeCacheIndex(old);
+        }
+        localStorage.setItem(key, payload);
+      }
+      const idx = readCacheIndex().filter((e) => e.t !== raw);
+      idx.unshift({ t: raw, ts: Date.now() });
+      while (idx.length > ANALYSIS_CACHE_MAX) {
+        const drop = idx.pop();
+        localStorage.removeItem(ANALYSIS_CACHE_PREFIX + drop.t);
+      }
+      writeCacheIndex(idx);
+    } catch (e) {
+      console.warn('Could not save analysis cache:', e);
+    }
+  }
+
+  function loadAnalysisCache(raw) {
+    try {
+      const txt = localStorage.getItem(ANALYSIS_CACHE_PREFIX + raw);
+      if (!txt) return null;
+      const obj = JSON.parse(txt);
+      if (!obj || !obj.sheet || !obj.ts) return null;
+      if (Date.now() - obj.ts > ANALYSIS_CACHE_MAX_AGE_MS) return null;
+      return obj;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  // Only a complete, freshly-fetched analysis gets saved: never a partial
+  // (unstable) scrape, never data that was itself loaded from the cache, and
+  // never a replacement of a saved chart with nothing just because this
+  // session's chart fetch failed.
+  function persistAnalysis() {
+    if (!state.rawInput || !state.sheet || state.sheet.stable === false) return;
+    if (!state.sheetFresh) return;
+    if (!state.chartFresh && state.cachedHadChart) return;
+    saveAnalysisCache(state.rawInput, state.sheet, state.chartFresh ? state.lastChartRes : null);
+  }
+
+  function timeAgo(ts) {
+    const mins = Math.round((Date.now() - ts) / 60000);
+    if (mins < 1) return 'just now';
+    if (mins < 60) return mins + ' min ago';
+    const hrs = Math.round(mins / 60);
+    if (hrs < 48) return hrs + (hrs === 1 ? ' hour ago' : ' hours ago');
+    return Math.round(hrs / 24) + ' days ago';
+  }
+
+  function setCacheBanner(msg) {
+    const el = $('#cache-banner');
+    if (!el) return;
+    el.textContent = msg;
+    el.style.display = 'block';
+  }
+
+  function hideCacheBanner() {
+    const el = $('#cache-banner');
+    if (el) el.style.display = 'none';
+  }
+
+  // Re-renders whichever data view is active, without yanking someone out of
+  // the Learn tab just because a background fetch finished.
+  function refreshCurrentView() {
+    updateAssetTitle(); // the sheet (and so the company name) can change after load, e.g. via a retry
+    if (state.view === 'learn') return;
+    setWorkspace(state.view === 'quant' ? 'quant' : 'market');
+  }
+
+  function updateAssetTitle() {
+    const el = $('#asset-title');
+    if (!el || !state.rawInput) return;
+    const displayName = (state.sheet && state.sheet.companyName) || state.rawInput;
+    el.textContent = 'Strategic Asset Intelligence Center (' + displayName + ')';
+  }
+
+  // Inputs that auto-fill only when empty (so a user's own edits survive a
+  // re-render) must be cleared whenever the underlying ticker data changes,
+  // or they keep showing the previous values.
+  function clearTickerInputs() {
+    [
+      '#graham-eps', '#graham-bvps', '#gf-eps', '#gf-growth', '#pl-eps', '#pl-growth',
+      '#cc-price', '#cc-cagr', '#er-price', '#er-eps', '#er-growth', '#er-pe'
+    ].forEach((sel) => {
+      const el = $(sel);
+      if (el) el.value = '';
+    });
+  }
+
+  // Everything that happens once there's something to show: reveal the main
+  // content, set the title, render the active view and the data warnings.
+  function presentAnalysis() {
+    hide($('#loading'));
+    show($('#main-content'));
+    const reportActions = $('#report-actions');
+    if (reportActions) reportActions.style.display = 'flex';
+    refreshCurrentView();
+    updateTvLink();
+    renderDataWarning();
+  }
+
   async function loadTicker() {
     const raw = ($('#ticker-input').value || '').trim().toUpperCase();
     if (!raw) return;
@@ -3396,6 +3879,13 @@ const App = (() => {
     const intervalSelFs = $('#chart-interval-fs');
     if (intervalSelFs) intervalSelFs.value = 'D';
     state.sheet = null;
+    state.fromCache = false;
+    state.chartStale = false;
+    state.cachedAt = null;
+    state.lastChartRes = null;
+    state.sheetFresh = false;
+    state.chartFresh = false;
+    state.cachedHadChart = false;
     const peer1El = $('#peer-1');
     const peer2El = $('#peer-2');
     const peerResultEl = $('#peer-comparison-result');
@@ -3405,21 +3895,48 @@ const App = (() => {
     // Clear valuation calculator inputs so a stale value from the previous
     // ticker (or a failed first-load fallback) can never block this
     // ticker's auto-fill — see renderValuationWidgets' "!el.value" checks.
-    ['#graham-eps', '#graham-bvps', '#gf-eps', '#gf-growth', '#pl-eps', '#pl-growth', '#cc-price', '#cc-cagr'].forEach((sel) => {
-      const el = $(sel);
-      if (el) el.value = '';
-    });
+    clearTickerInputs();
     // Clear the sticky LTP/P/E header too — it only gets refreshed once the
     // new ticker's data arrives, so without this it keeps showing the
     // previous ticker's price/P/E for the entire load, which reads as if
     // the new search did nothing yet.
     updateStickyQuote(null);
 
-    hide($('#main-content'));
+    hideCacheBanner();
     hide($('#error-box'));
-    show($('#loading'));
+
+    // Instant load: if this ticker was analyzed before, show that saved
+    // analysis immediately (clearly labeled with its age) while the fresh
+    // fetch runs in the background, instead of staring at a spinner for up
+    // to a few minutes.
+    const cached = loadAnalysisCache(raw);
+    let usedCache = false;
+    if (cached) {
+      try {
+        state.fromCache = true; // blocks verdict-history writes while the data may be stale
+        state.cachedHadChart = !!(cached.chart && cached.chart.history);
+        state.cachedAt = cached.ts;
+        state.info = (cached.chart && cached.chart.info) || {};
+        applySheet(cached.sheet);
+        applyChartResult(cached.chart || { history: null });
+        presentAnalysis();
+        setCacheBanner('Showing your saved analysis from ' + timeAgo(cached.ts) + '. Refreshing in the background…');
+        usedCache = true;
+      } catch (e) {
+        console.warn('Saved analysis could not be shown:', e);
+        state.fromCache = false;
+        state.sheet = null;
+        state.cachedHadChart = false;
+        hideCacheBanner();
+      }
+    }
+
     const loadMsg = $('#loading');
-    if (loadMsg) loadMsg.innerHTML = '<div class="spinner"></div><div>Loading…</div>';
+    if (!usedCache) {
+      hide($('#main-content'));
+      show($('#loading'));
+      if (loadMsg) loadMsg.innerHTML = '<div class="spinner"></div><div>Loading…</div>';
+    }
 
     // Fundamentals can take up to ~3 minutes when several IMPORTHTML tables
     // on the Screener sheet are slow to resolve — update the message over
@@ -3427,7 +3944,10 @@ const App = (() => {
     let loadSecs = 0;
     const progressTimer = setInterval(() => {
       loadSecs += 5;
-      if (loadMsg && loadSecs >= 15) {
+      if (loadSecs < 15) return;
+      if (usedCache) {
+        setCacheBanner('Showing your saved analysis from ' + timeAgo(cached.ts) + '. Still refreshing… (' + loadSecs + 's)');
+      } else if (loadMsg) {
         loadMsg.innerHTML =
           '<div class="spinner"></div><div>Still loading fundamentals… (' + loadSecs +
           's) — some tickers take a couple of minutes.</div>';
@@ -3445,40 +3965,58 @@ const App = (() => {
       const [chartRes, sheetRes] = await Promise.all([chartPromise, sheetPromise]);
       clearInterval(progressTimer);
 
-      state.info = chartRes.info || {};
+      // A fresh result only replaces what's on screen when it's actually
+      // usable: a failed refresh must never wipe a good saved analysis, and
+      // a half-scraped (unstable) sheet is worse than a complete saved one.
+      const sheetOk = !!(sheetRes && sheetRes.ok && sheetRes.data);
+      const freshSheet = sheetOk && (!usedCache || sheetRes.data.stable !== false);
+      const freshChart = !!(chartRes && chartRes.history && chartRes.history.length >= 30);
 
-      if (sheetRes && sheetRes.ok && sheetRes.data) {
-        applySheet(sheetRes.data);
-      }
+      // Inputs that only auto-fill when empty must be cleared again so they
+      // pick up the fresh numbers rather than keeping the saved ones.
+      if (usedCache) clearTickerInputs();
 
-      applyChartResult(chartRes);
+      if (!usedCache || freshChart) state.info = chartRes.info || {};
+      if (freshSheet) applySheet(sheetRes.data);
+      else if (usedCache && state.sheet) applySheet(state.sheet); // re-derive info fields if state.info was replaced
+
+      if (!usedCache || freshChart) applyChartResult(chartRes);
+      else if (freshSheet) recomputeVerdict();
+
+      state.sheetFresh = freshSheet;
+      state.chartFresh = freshChart;
+      state.fromCache = usedCache && !freshSheet;
+      // A saved chart left on screen because its refresh failed is stale too.
+      state.chartStale = usedCache && !freshChart && state.cachedHadChart;
 
       // If no chart and no sheet, hard fail
-      if (!state.df && !(sheetRes && sheetRes.ok && sheetRes.data)) {
+      if (!state.df && !state.sheet) {
         throw new Error(
           (chartRes && chartRes.chartError) ||
             'Could not load price or fundamental data. Try again.'
         );
       }
 
-      hide($('#loading'));
-      show($('#main-content'));
-      const reportActions = $('#report-actions');
-      if (reportActions) reportActions.style.display = 'flex';
-      const displayName = (state.sheet && state.sheet.companyName) || state.rawInput;
-      $('#asset-title').textContent = 'Strategic Asset Intelligence Center (' + displayName + ')';
-
-      if (state.view === 'market') {
-        setWorkspace('market');
-      } else {
-        setWorkspace('quant');
+      if (freshSheet && state.chartStale) {
+        setCacheBanner(
+          "Fundamentals are fresh, but the price chart couldn't be refreshed — showing the chart saved " +
+            timeAgo(cached.ts) + '.'
+        );
+      } else if (freshSheet) {
+        hideCacheBanner();
+      } else if (usedCache) {
+        setCacheBanner(
+          (sheetOk
+            ? "Fundamentals couldn't be fully refreshed"
+            : freshChart
+            ? "Couldn't refresh fundamentals"
+            : "Couldn't refresh") +
+            ' — showing your saved analysis from ' + timeAgo(cached.ts) + '.' +
+            (freshChart ? ' The price chart is live.' : '')
+        );
       }
 
-      updateTvLink();
-
-      // Shows the "chart unavailable" / "fundamentals unavailable" banner
-      // with the appropriate single retry button, or nothing if both loaded.
-      renderDataWarning();
+      presentAnalysis();
 
       // If the sheet fetch failed outright, or came back but couldn't be
       // confirmed stable within the server's own wait window, retry it in
@@ -3488,16 +4026,23 @@ const App = (() => {
       // button shown by renderDataWarning() calls the same function, so
       // there's never a duplicate in-flight request.
       const sheetUnstable = !!(state.sheet && state.sheet.stable === false);
-      if (!state.sheet || sheetUnstable) {
+      if (!state.sheet || sheetUnstable || (usedCache && !freshSheet)) {
         scheduleSheetRetry(raw, 2);
       }
+
+      persistAnalysis();
     } catch (err) {
       clearInterval(progressTimer);
       console.error(err);
-      hide($('#loading'));
-      const box = $('#error-box');
-      box.textContent = 'Error: ' + (err.message || err);
-      show(box);
+      if (usedCache && (state.sheet || state.df)) {
+        // Keep the saved analysis visible rather than replacing it with an error.
+        setCacheBanner("Couldn't refresh — showing your saved analysis from " + timeAgo(cached.ts) + '. ' + (err.message || ''));
+      } else {
+        hide($('#loading'));
+        const box = $('#error-box');
+        box.textContent = 'Error: ' + (err.message || err);
+        show(box);
+      }
     }
   }
 
