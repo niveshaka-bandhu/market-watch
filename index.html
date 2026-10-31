@@ -18,7 +18,7 @@
   <title>Indian Quant Verdict Dashboard</title>
   <link rel="manifest" href="manifest.json" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="css/quant.css" />
   <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
@@ -52,7 +52,7 @@
       </div>
 
       <div class="control-group stock-lookup" id="lookup-group" style="margin-left:auto;flex:1;min-width:280px;max-width:520px">
-        <label class="lookup-label">STOCK LOOKUP</label>
+        <label class="lookup-label">Stock Lookup</label>
         <div class="lookup-row">
           <div class="lookup-wrap">
             <input type="text" id="ticker-input" value="" placeholder="Search company name or symbol..." autocomplete="off" />
@@ -63,7 +63,7 @@
       </div>
 
       <div class="control-group" id="sticky-quote-group" style="display:none;flex-basis:100%;justify-content:center;margin-top:2px">
-        <div id="sticky-quote" style="color:rgba(255,255,255,0.85);font-weight:400;font-size:12px;white-space:nowrap;display:flex;gap:14px">
+        <div id="sticky-quote" style="color:rgba(255,255,255,0.85);font-weight:500;font-size:12px;font-family:'IBM Plex Mono',monospace;white-space:nowrap;display:flex;gap:14px">
           <span>—</span>
         </div>
       </div>
@@ -81,6 +81,7 @@
     <!-- Main Content -->
     <div id="main-content" class="hidden">
       <h1 id="asset-title" style="font-size:20px;margin-bottom:16px">Strategic Asset Intelligence Center</h1>
+      <div id="cache-banner" style="display:none;margin:-4px 0 14px;padding:10px 14px;border-radius:10px;background:#fff7e0;border:1px solid #efb41d;color:#6b4e00;font-size:12.5px;line-height:1.5"></div>
 
       <!-- ========== MARKET VIEW ========== -->
       <div id="view-market">
@@ -375,6 +376,49 @@
               </div>
             </div>
             <div id="cc-result" class="result-box">—</div>
+          </div>
+          <div class="card">
+            <h3>🎯 Expected Return &amp; What's Priced In</h3>
+            <p style="font-size:11.5px;color:var(--text-muted);margin-bottom:8px;line-height:1.5">
+              A scenario tool, not a forecast: what the stock would return <b>if</b> earnings grow at the rate
+              you enter and it later trades at the P/E you enter. Growth defaults to this stock's 5-year profit
+              growth (kept between 5% and 25%). Exit P/E defaults to today's P/E, meaning no re-rating &mdash; lower it
+              for a more cautious case. Dividends aren't included.
+            </p>
+            <div class="form-row">
+              <div class="form-group">
+                <label>Current Price (₹)</label>
+                <input type="number" id="er-price" step="0.1" />
+              </div>
+              <div class="form-group">
+                <label>EPS, trailing (₹)</label>
+                <input type="number" id="er-eps" step="0.1" />
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label>EPS growth (% a year)</label>
+                <input type="number" id="er-growth" step="0.5" />
+              </div>
+              <div class="form-group">
+                <label>Years</label>
+                <input type="number" id="er-years" step="1" value="5" />
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label>Exit P/E</label>
+                <input type="number" id="er-pe" step="0.5" />
+              </div>
+              <div class="form-group">
+                <label>Return you want (% a year)</label>
+                <input type="number" id="er-req" step="0.5" value="12" />
+              </div>
+            </div>
+            <div style="font-weight:700;font-size:13px;margin:12px 0 4px">If these assumptions hold</div>
+            <div id="er-result" class="result-box">—</div>
+            <div style="font-weight:700;font-size:13px;margin:12px 0 4px">What today's price is already assuming</div>
+            <div id="er-implied" class="result-box">—</div>
           </div>
         <div id="sheet-dashboard"></div>
         </div>
@@ -747,6 +791,19 @@
         </details>
 
         <details class="glossary-item">
+          <summary>Expected Return &amp; What's Priced In</summary>
+          <div class="glossary-body">
+            A scenario calculator, not a prediction. It answers two questions from the same few inputs.
+            <div class="g-formula">Future price = EPS × (1 + growth)^years × Exit P/E</div>
+            <div class="g-formula">Needed growth = (Price × (1 + wanted return)^years ÷ (EPS × Exit P/E))^(1/years) − 1</div>
+            <div class="g-read"><b>How to read it:</b> the first answer shows what you would earn <i>if</i> your
+            growth and exit P/E assumptions come true. The second shows how much growth today's price already
+            assumes — if that is well above what the company has delivered before, the price is asking a lot.
+            With an exit P/E equal to today's, the yearly return simply equals the growth rate.</div>
+          </div>
+        </details>
+
+        <details class="glossary-item">
           <summary>Acquirer's Multiple &amp; Magic Formula Earnings Yield</summary>
           <div class="glossary-body">
             Deep-value tools popularized by Joel Greenblatt and Tobias Carlisle.
@@ -826,6 +883,18 @@
         </details>
 
         <details class="glossary-item">
+          <summary>Earnings Momentum</summary>
+          <div class="glossary-body">
+            Each quarter's sales, net profit and EPS compared with the <b>same quarter a year earlier</b>, so
+            seasonal businesses (air conditioners in summer, FMCG around festivals) aren't misread.
+            <div class="g-read"><b>How to read it:</b> several quarters of year-over-year growth in a row is a
+            healthy sign; growth that is slowing is an early warning even while it is still positive; a rebound
+            after a down quarter is worth confirming with the next result. "Turnaround" means profit moved from a
+            loss to a gain, where a percentage isn't meaningful.</div>
+          </div>
+        </details>
+
+        <details class="glossary-item">
           <summary>Debt-to-Equity</summary>
           <div class="glossary-body">
             <div class="g-formula">Debt-to-Equity = Total Borrowings / Shareholder Equity</div>
@@ -879,7 +948,7 @@
     </div>
 
     <footer>
-      Indian Quant Verdict · Built for NSE/BSE · PWA-ready · Host on GitHub Pages
+      A quant analysis dashboard for NSE and BSE stocks, installable as an app and hosted on GitHub Pages.
     </footer>
   </div>
 
